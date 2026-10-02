@@ -409,6 +409,52 @@ export const BoardIcon = (props) => (
   </Svg>
 );
 
+export const LineIcon = (props) => (
+  <Svg {...props}>
+    <path d="M5 19L19 5" />
+    <circle cx="5" cy="19" r="1.6" />
+    <circle cx="19" cy="5" r="1.6" />
+  </Svg>
+);
+
+export const ArrowIcon = (props) => (
+  <Svg {...props}>
+    <path d="M5 19L19 5" />
+    <path d="M12.5 5H19v6.5" />
+  </Svg>
+);
+
+export const RectangleIcon = (props) => (
+  <Svg {...props}>
+    <rect x="4" y="6" width="16" height="12" rx="2" />
+  </Svg>
+);
+
+export const CircleShapeIcon = (props) => (
+  <Svg {...props}>
+    <ellipse cx="12" cy="12" rx="8.5" ry="6.5" />
+  </Svg>
+);
+
+export const TextToolIcon = (props) => (
+  <Svg {...props}>
+    <path d="M5 6h14" />
+    <path d="M12 6v13" />
+    <path d="M9 19h6" />
+  </Svg>
+);
+
+export const MoveIcon = (props) => (
+  <Svg {...props}>
+    <path d="M12 3v18" />
+    <path d="M3 12h18" />
+    <path d="M12 3l-2.5 2.5M12 3l2.5 2.5" />
+    <path d="M12 21l-2.5-2.5M12 21l2.5-2.5" />
+    <path d="M3 12l2.5-2.5M3 12l2.5 2.5" />
+    <path d="M21 12l-2.5-2.5M21 12l-2.5 2.5" />
+  </Svg>
+);
+
 export const FrameIcon = (props) => (
   <Svg {...props}>
     <rect x="3" y="4" width="18" height="16" rx="2" />

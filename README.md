@@ -11,7 +11,7 @@ A minimalist, Vercel-styled focus whiteboard for students and teachers. Start fr
 - **Empty by default** — the canvas starts blank. Add anything from the toolbar at the bottom.
 - **Infinite canvas** — pan in any direction forever; the dot/line grid scrolls and zooms with you.
 - **Whiteboard navigation** — drag the empty canvas to pan, scroll to move, and `Ctrl`/`Cmd` + scroll (or a two-finger pinch) to zoom. On a trackpad you can pan and zoom at the same time, and two fingers drag while they pinch. Click the canvas to deselect.
-- **Draw on the board** — hit the pen in the header to annotate right over your widgets. Pen, highlighter and eraser, a colour palette and four stroke widths, plus undo, redo, clear, and PNG export. Strokes are saved in the browser alongside everything else. (`Ctrl`/`Cmd` + `Z` undoes, `Shift` + `Ctrl`/`Cmd` + `Z` redoes.)
+- **Draw on the board** — hit the pen in the header to annotate right over your widgets. Ten tools: pen, highlighter, line, arrow, rectangle, ellipse, text, eraser, select-and-move, and pan. Shapes can be filled, `Shift` snaps lines to 45° and shapes to a square, `Alt`-drag is a quick eraser, and each tool has a single-key shortcut (`P` pen, `M` marker, `L` line, `A` arrow, `R` rectangle, `O` ellipse, `T` text, `E` eraser, `V` select, `H` pan). The select tool gives you a marching-ants outline with a delete handle, plus duplicate and delete in the toolbar, and the whole drawing can be exported as PNG or SVG, or copied to the clipboard. Everything is saved in the browser alongside your widgets. (`Ctrl`/`Cmd` + `Z` undoes, `Shift` + `Ctrl`/`Cmd` + `Z` redoes, `Delete` removes the selection.)
 - **Whiteboard mode** — toggle *Whiteboard* in the draw toolbar and the widgets slide away, leaving a clean, pannable, zoomable surface for lesson notes, diagrams, and worked examples.
 - **Live tray** — anything currently running (focus timer, stopwatch, interval, breathing, ambience) shows a small live read-out in the top bar. Click a chip to jump to that widget.
 - **Widgets** — drag a widget by anywhere on its card (buttons and inputs still work), and resize from any of its four corners within sensible limits; the handles enlarge and a live size badge appears while you resize. Contents scale up and down with the widget. Lock, duplicate, or remove from the header actions. Each widget is styled like its real-life counterpart — post-its are paper, the timer is a device with an LCD, notes are a lined page, flashcards are index cards, embed is a little browser window, and so on.
@@ -28,9 +28,10 @@ A minimalist, Vercel-styled focus whiteboard for students and teachers. Start fr
 - Task list with progress, "clear done", a weekly habit tracker, and an event countdown with quick `+1 week` / `+1 month` shortcuts
 - Hydration tracker with a goal and reset, inspiration quotes you can copy, ambient soundscape (white / pink / brown / rain / storm / ocean / wind / embers / night)
 - Live clock with a 12/24-hour toggle, notes with a live word count, quick links, and a daily stats summary
-- **Weather** — current conditions and a three-day outlook for a city you search or your detected location (powered by Open-Meteo, no API key needed)
-- **Embed** — paste any link (a doc, a video, a slide deck) to drop a live iframe onto the board, with reload and open-in-new-tab
+- **Weather** — current conditions and a three-day outlook for a city you search or your detected location, with a °C/°F switch on the widget itself (powered by Open-Meteo, no API key needed)
+- **Embed** — paste any link (a doc, a video, a slide deck) to drop a live iframe onto the board. Once a valid link loads, the widget becomes a full, chrome-free frame — the setup bar and link footer drop away, leaving reload, open-in-new-tab, and change-URL as small hover controls
 - Todoist — connect with a personal API token to view, complete, and add tasks from the board
+- Notes — a full-bleed lined page that fills the whole widget (no header or footer bar); the word count and Clear action float in the corner on hover
 - Post-it notes — headerless sticky notes that look like real paper, with per-note text and colour
 - Flashcards — a study deck you type once (one `front | back` card per line), with shuffle, then flip through
 - Picker — a random name picker that avoids repeats, for cold-calling or group work

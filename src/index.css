@@ -2198,6 +2198,55 @@ textarea::placeholder {
   min-height: 0;
 }
 
+/* Full-bleed notes: the page is the widget, like the post-it. */
+.notes-wrap--full {
+  position: relative;
+  gap: 0;
+}
+
+.notes-area--full {
+  flex: 1;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 18px 16px;
+  resize: none;
+}
+
+.widget--notes .widget-content,
+.widget--notes .widget-scale {
+  padding: 0;
+}
+
+.notes-float {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  backdrop-filter: blur(8px);
+  font-size: 11.5px;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 0.16s ease;
+  pointer-events: none;
+}
+
+.widget--notes:hover .notes-float,
+.widget--notes.is-focused .notes-float {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.notes-count {
+  font-variant-numeric: tabular-nums;
+}
+
 .notes-foot {
   display: flex;
   align-items: center;
@@ -2269,10 +2318,50 @@ textarea::placeholder {
   color: var(--muted);
 }
 
+.weather-place-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
 .weather-place {
   text-align: center;
   font-size: 12.5px;
   color: var(--muted);
+}
+
+/* C°/F° switch — a small segmented control. */
+.unit-switch {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.unit-option {
+  min-width: 34px;
+  padding: 3px 7px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.unit-option:hover {
+  color: var(--text);
+  background: transparent;
+  border-color: transparent;
+}
+
+.unit-option.active {
+  background: var(--text);
+  color: var(--bg);
+  border-color: transparent;
 }
 
 .weather-meta {
@@ -2333,9 +2422,14 @@ textarea::placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
   gap: 8px;
   font-size: 14px;
   font-weight: 500;
+}
+
+.weather-setup-head .unit-switch {
+  font-weight: 400;
 }
 
 .weather-locate {
@@ -2388,28 +2482,133 @@ textarea::placeholder {
   border: 0;
 }
 
-.iframe-foot {
+/* A live embed is a full widget: the frame fills it and its tools hover
+   in the corner instead of taking a permanent bar. */
+.widget--embed-live .widget-content,
+.widget--embed-live .widget-scale {
+  padding: 0;
+}
+
+.widget--embed-live .iframe-body {
+  position: relative;
+  gap: 0;
+  height: 100%;
+}
+
+.widget--embed-live .iframe-frame {
+  border: none;
+  border-radius: 0;
+}
+
+/* Bottom-right, so it never collides with the floating widget actions. */
+.iframe-tools {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
   display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 12px;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.24);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  z-index: 4;
 }
 
-.iframe-url {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.widget--embed-live:hover .iframe-tools,
+.widget--embed-live.is-focused .iframe-tools,
+.widget--embed-live.is-resizing .iframe-tools {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Dark paper widgets need a readable chip behind the floating actions. */
+.widget--notes .widget-actions--float,
+.widget--embed-live .widget-actions--float {
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  border: 1px solid var(--border);
+}
+
+/* Headerless widgets (post-it, notes, live embed) keep a small grab strip
+   at the top so they can still be picked up and dragged around. */
+.widget--bare .widget-drag-strip {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 16px;
+  cursor: grab;
+  touch-action: none;
+  z-index: 5;
+}
+
+.widget--bare .widget-drag-strip:active {
+  cursor: grabbing;
+}
+
+.widget--bare .widget-drag-grip {
+  width: 34px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 24%, transparent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+
+.widget--bare:hover .widget-drag-grip,
+.widget--bare.is-focused .widget-drag-grip {
+  opacity: 1;
+}
+
+.iframe-tool {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
   color: var(--muted);
+  text-decoration: none;
 }
 
-.iframe-foot .text-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  align-self: center;
-  text-decoration: none;
+.iframe-tool:hover {
+  color: var(--text);
+  background: var(--surface-3);
+  border-color: transparent;
+}
+
+/* Empty embed — a friendly drop-in target. */
+.iframe-setup {
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.iframe-setup-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  margin: 0 auto;
+  border-radius: 14px;
+  border: 1px dashed var(--border-2);
+  background: var(--surface-2);
+  color: var(--widget-accent, var(--accent));
+}
+
+.iframe-setup-title {
+  font-size: 14px;
+  font-weight: 500;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2523,6 +2722,85 @@ textarea::placeholder {
 .draw-swatch.active {
   border-color: transparent;
   box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--accent);
+}
+
+.draw-fill-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1.5px solid currentColor;
+}
+
+.draw-fill-icon.on {
+  background: currentColor;
+}
+
+/* Select tool — a marching outline with a delete handle. */
+.stroke-selection rect {
+  stroke: var(--accent);
+  stroke-width: 1.4;
+  opacity: 0.9;
+  animation: selectionMarch 24s linear infinite;
+}
+
+@keyframes selectionMarch {
+  to { stroke-dashoffset: -400; }
+}
+
+.stroke-delete {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 1.4;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.stroke-delete:hover {
+  fill: #ff5f56;
+  stroke: #ff5f56;
+}
+
+.stroke-delete-x {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.stroke-delete:hover + .stroke-delete-x,
+.stroke-selection:hover .stroke-delete-x {
+  stroke: var(--text);
+}
+
+/* The in-place text editor floats over the board at the current zoom. */
+.text-editor {
+  position: absolute;
+  margin: 0;
+  padding: 2px 4px;
+  border: 1px dashed var(--accent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  resize: none;
+  overflow: hidden;
+  white-space: pre;
+  transform-origin: 0 0;
+  z-index: 6;
+}
+
+.text-editor::placeholder {
+  color: color-mix(in srgb, currentColor 50%, transparent);
+}
+
+.text-editor:focus-visible {
+  outline: none;
+}
+
+.canvas-viewport.is-drawing[data-tool='text'] {
+  cursor: text;
+}
+
+.canvas-viewport.is-drawing[data-tool='select'] {
+  cursor: default;
 }
 
 @media (max-width: 1100px) {
@@ -2894,6 +3172,23 @@ textarea::placeholder {
   background-size: 100% 100%, 100% 28px;
   line-height: 28px;
   padding-left: 44px;
+}
+
+/* Full-bleed notes keep the lined paper but drop the inner card frame. */
+.widget--notes {
+  background: linear-gradient(180deg, var(--surface), var(--surface-2));
+}
+
+.widget[data-type='notes'] .notes-area--full {
+  border: none;
+  border-radius: 0;
+  background-color: transparent;
+  padding: 18px 18px 18px 46px;
+  font-size: 14px;
+}
+
+[data-theme='light'] .widget[data-type='notes'] .notes-area--full {
+  background-color: transparent;
 }
 
 /* Flashcards — an index card with a top rule and a folded corner. */

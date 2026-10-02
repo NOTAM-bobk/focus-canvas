@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ICONS,
+  ArrowIcon,
+  CircleShapeIcon,
   BoardIcon,
   BreathIcon,
   CalendarIcon,
@@ -25,13 +27,17 @@ import {
   HighlighterIcon,
   ImageIcon,
   LayersIcon,
+  LineIcon,
   LinkIcon,
   LockIcon,
   MinusIcon,
   MoonIcon,
+  MoveIcon,
   NoteIcon,
   PencilIcon,
   PenIcon,
+  RectangleIcon,
+  TextToolIcon,
   PlusIcon,
   QuoteIcon,
   RainIcon,
@@ -53,6 +59,8 @@ import {
   UnlockIcon,
   XIcon,
 } from './icons';
+import { SelectionOutline, Stroke, TextEditor } from './DrawLayer';
+import { constrainPoint, isShapeTool, squarePoint, strokeHit, strokesBounds, strokesToSvg, translateStroke } from './draw';
 
 /* ------------------------------------------------------------------ */
 /*  Constants & helpers                                               */
@@ -161,30 +169,40 @@ const greeting = (hour) => {
 /*  Catalog                                                           */
 /* ------------------------------------------------------------------ */
 
+// Widgets grouped by what they are for, so the bottom bar can stay short.
+const WIDGET_CATEGORIES = [
+  { key: 'focus', label: 'Focus', icon: TimerIcon, blurb: 'Run a session' },
+  { key: 'plan', label: 'Plan', icon: CheckSquareIcon, blurb: 'Track what is next' },
+  { key: 'capture', label: 'Capture', icon: NoteIcon, blurb: 'Write it down' },
+  { key: 'insights', label: 'Insights', icon: ChartIcon, blurb: 'Glance and check' },
+  { key: 'tools', label: 'Tools', icon: SlidersIcon, blurb: 'Everything else' },
+];
+
 const WIDGET_CATALOG = [
-  { key: 'timer', label: 'Focus', icon: TimerIcon, w: 260, h: 200 },
-  { key: 'stopwatch', label: 'Stopwatch', icon: StopwatchIcon, w: 230, h: 180 },
-  { key: 'pandora', label: 'Interval', icon: RepeatIcon, w: 250, h: 200 },
-  { key: 'clock', label: 'Clock', icon: ClockIcon, w: 250, h: 170 },
-  { key: 'countdown', label: 'Countdown', icon: CalendarIcon, w: 280, h: 200 },
-  { key: 'tasks', label: 'Tasks', icon: CheckSquareIcon, w: 310, h: 250 },
-  { key: 'habits', label: 'Habits', icon: SproutIcon, w: 340, h: 245 },
-  { key: 'notes', label: 'Notes', icon: NoteIcon, w: 330, h: 230 },
-  { key: 'water', label: 'Water', icon: DropletIcon, w: 250, h: 215 },
-  { key: 'quote', label: 'Quote', icon: QuoteIcon, w: 340, h: 195 },
-  { key: 'links', label: 'Links', icon: LinkIcon, w: 270, h: 220 },
-  { key: 'sound', label: 'Sound', icon: HeadphonesIcon, w: 300, h: 270 },
-  { key: 'stats', label: 'Today', icon: ChartIcon, w: 300, h: 220 },
-  { key: 'sticky', label: 'Post-it', icon: StickyIcon, w: 250, h: 250 },
-  { key: 'flashcards', label: 'Flashcards', icon: FlashcardIcon, w: 300, h: 250 },
-  { key: 'picker', label: 'Picker', icon: DiceIcon, w: 260, h: 220 },
-  { key: 'breath', label: 'Breathe', icon: BreathIcon, w: 240, h: 270 },
-  { key: 'weather', label: 'Weather', icon: CloudIcon, w: 300, h: 290 },
-  { key: 'todoist', label: 'Todoist', icon: TodoistIcon, w: 340, h: 320 },
-  { key: 'iframe', label: 'Embed', icon: FrameIcon, w: 420, h: 320 },
+  { key: 'timer', label: 'Focus', icon: TimerIcon, category: 'focus', w: 260, h: 200 },
+  { key: 'stopwatch', label: 'Stopwatch', icon: StopwatchIcon, category: 'focus', w: 230, h: 180 },
+  { key: 'pandora', label: 'Interval', icon: RepeatIcon, category: 'focus', w: 250, h: 200 },
+  { key: 'breath', label: 'Breathe', icon: BreathIcon, category: 'focus', w: 240, h: 270 },
+  { key: 'tasks', label: 'Tasks', icon: CheckSquareIcon, category: 'plan', w: 310, h: 250 },
+  { key: 'habits', label: 'Habits', icon: SproutIcon, category: 'plan', w: 340, h: 245 },
+  { key: 'countdown', label: 'Countdown', icon: CalendarIcon, category: 'plan', w: 280, h: 200 },
+  { key: 'todoist', label: 'Todoist', icon: TodoistIcon, category: 'plan', w: 340, h: 320 },
+  { key: 'notes', label: 'Notes', icon: NoteIcon, category: 'capture', w: 330, h: 230 },
+  { key: 'sticky', label: 'Post-it', icon: StickyIcon, category: 'capture', w: 250, h: 250 },
+  { key: 'flashcards', label: 'Flashcards', icon: FlashcardIcon, category: 'capture', w: 300, h: 250 },
+  { key: 'clock', label: 'Clock', icon: ClockIcon, category: 'insights', w: 250, h: 170 },
+  { key: 'stats', label: 'Today', icon: ChartIcon, category: 'insights', w: 300, h: 220 },
+  { key: 'weather', label: 'Weather', icon: CloudIcon, category: 'insights', w: 300, h: 290 },
+  { key: 'quote', label: 'Quote', icon: QuoteIcon, category: 'insights', w: 340, h: 195 },
+  { key: 'water', label: 'Water', icon: DropletIcon, category: 'tools', w: 250, h: 215 },
+  { key: 'links', label: 'Links', icon: LinkIcon, category: 'tools', w: 270, h: 220 },
+  { key: 'sound', label: 'Sound', icon: HeadphonesIcon, category: 'tools', w: 300, h: 270 },
+  { key: 'picker', label: 'Picker', icon: DiceIcon, category: 'tools', w: 260, h: 220 },
+  { key: 'iframe', label: 'Embed', icon: FrameIcon, category: 'tools', w: 420, h: 320 },
 ];
 
 const CATALOG_MAP = Object.fromEntries(WIDGET_CATALOG.map((item) => [item.key, item]));
+const CATEGORY_MAP = Object.fromEntries(WIDGET_CATEGORIES.map((item) => [item.key, item]));
 
 const STICKY_COLORS = ['#f7d64c', '#ffa07a', '#8fd3ff', '#9ae6b4', '#d9b8ff'];
 
@@ -288,38 +306,35 @@ const defaultSettings = {
   scaleContent: true,
   zoomHud: true,
   hiddenPalette: [],
+  barOpen: true,
   chime: true,
   autoNext: false,
   reduceMotion: false,
   drawMode: false,
   whiteboard: false,
-  drawTool: 'pen',
-  drawColor: '#0070f3',
-  drawSize: 4,
+  drawFill: false,
 };
 const GRID_SIZES = [16, 24, 32];
 const ACCENT_PRESETS = ['#0070f3', '#ffffff', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
 const DRAW_COLORS = ['#0070f3', '#ffffff', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#111827'];
 const DRAW_SIZES = [2, 4, 8, 16];
+// `shortcut` keys are single keystrokes while drawing.
+const DRAW_TOOLS = [
+  { key: 'pen', label: 'Pen', icon: PenIcon, shortcut: 'p' },
+  { key: 'marker', label: 'Highlighter', icon: HighlighterIcon, shortcut: 'm' },
+  { key: 'line', label: 'Line', icon: LineIcon, shortcut: 'l' },
+  { key: 'arrow', label: 'Arrow', icon: ArrowIcon, shortcut: 'a' },
+  { key: 'rect', label: 'Rectangle', icon: RectangleIcon, shortcut: 'r' },
+  { key: 'ellipse', label: 'Ellipse', icon: CircleShapeIcon, shortcut: 'o' },
+  { key: 'text', label: 'Text', icon: TextToolIcon, shortcut: 't' },
+  { key: 'eraser', label: 'Eraser', icon: EraserIcon, shortcut: 'e' },
+  { key: 'select', label: 'Select & move', icon: MoveIcon, shortcut: 'v' },
+  { key: 'pan', label: 'Pan board', icon: HandIcon, shortcut: 'h' },
+];
+/* Celsius → Fahrenheit, for the weather unit switch. */
+const toF = (value) => (value == null ? null : (value * 9) / 5 + 32);
+const temp = (value, unit) => (value == null ? '—' : `${Math.round(unit === 'f' ? toF(value) : value)}°`);
 
-// Turn a list of board-space points into a smooth SVG path.
-const pointsToPath = (points) => {
-  if (!points || !points.length) return '';
-  if (points.length === 1) {
-    return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)} l 0.01 0`;
-  }
-  let d = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
-  for (let i = 1; i < points.length - 1; i += 1) {
-    const control = points[i];
-    const next = points[i + 1];
-    const midX = (control.x + next.x) / 2;
-    const midY = (control.y + next.y) / 2;
-    d += ` Q ${control.x.toFixed(2)} ${control.y.toFixed(2)} ${midX.toFixed(2)} ${midY.toFixed(2)}`;
-  }
-  const last = points[points.length - 1];
-  d += ` L ${last.x.toFixed(2)} ${last.y.toFixed(2)}`;
-  return d;
-};
 
 const QUOTES = [
   { text: 'Focus is the art of knowing what to ignore.', author: 'James Clear' },
@@ -544,7 +559,11 @@ function WidgetCard({ widget, focused, mobile, scaleContent, resizing, onFocus, 
   const meta = CATALOG_MAP[widget.type];
   const baseW = meta ? meta.w : widget.w;
   const baseH = meta ? meta.h : widget.h;
-  const ws = !mobile && scaleContent ? Math.min(widget.w / baseW, widget.h / baseH) : 1;
+  // Growing a widget lets the layout reflow into the extra room; shrinking
+  // still scales the design-unit box down so nothing overflows or clips.
+  const fit = Math.min(widget.w / baseW, widget.h / baseH);
+  const ws = !mobile && scaleContent ? Math.min(1, fit) : 1;
+  const roomy = fit >= 1.18;
 
   // Mobile: press and hold a widget to reveal a hint naming it (press again to dismiss).
   const [hintOpen, setHintOpen] = useState(false);
@@ -604,8 +623,11 @@ function WidgetCard({ widget, focused, mobile, scaleContent, resizing, onFocus, 
       : undefined
     : { left: `${widget.x}px`, top: `${widget.y}px`, width: `${widget.w}px`, height: `${widget.h}px`, '--ws': `${ws}` };
 
-  // Post-it notes skip the header entirely and look like real paper.
+  // Post-its and notes skip the header entirely and look like real paper.
   const isSticky = widget.type === 'sticky';
+  const isNotes = widget.type === 'notes';
+  const isLiveEmbed = widget.type === 'iframe' && VALID_PROTOCOL.test(widget.src || '');
+  const bare = isSticky || isNotes || isLiveEmbed;
 
   const actionButtons = (
     <>
@@ -628,8 +650,9 @@ function WidgetCard({ widget, focused, mobile, scaleContent, resizing, onFocus, 
 
   return (
     <section
-      className={`widget ${mobile ? 'widget--flow' : ''} ${isSticky ? 'widget--sticky' : ''} ${focused ? 'is-focused' : ''} ${resizing ? 'is-resizing' : ''} ${widget.locked ? 'is-locked' : ''}`}
+      className={`widget ${mobile ? 'widget--flow' : ''} ${isSticky ? 'widget--sticky' : ''} ${isNotes ? 'widget--notes' : ''} ${isLiveEmbed ? 'widget--embed-live' : ''} ${bare ? 'widget--bare' : ''} ${focused ? 'is-focused' : ''} ${resizing ? 'is-resizing' : ''} ${widget.locked ? 'is-locked' : ''}`}
       data-type={widget.type}
+      data-fit={roomy ? 'roomy' : 'tight'}
       id={`widget-${widget.id}`}
       style={cardStyle}
       onMouseDown={onFocus}
@@ -646,7 +669,14 @@ function WidgetCard({ widget, focused, mobile, scaleContent, resizing, onFocus, 
           {meta ? meta.label : widget.title}
         </button>
       )}
-      {!isSticky && (
+      {/* Headerless widgets (post-it, notes, live embed) still need a grab
+          handle — their content fills the card and eats the pointer. */}
+      {bare && !mobile && (
+        <span className="widget-drag-strip" aria-hidden="true">
+          <span className="widget-drag-grip" />
+        </span>
+      )}
+      {!bare && (
         <header className={`widget-header ${mobile ? 'static' : ''}`}>
           <span className="widget-title">
             <Icon size={15} />
@@ -660,7 +690,7 @@ function WidgetCard({ widget, focused, mobile, scaleContent, resizing, onFocus, 
       <div className="widget-content">
         <div className="widget-scale">{children}</div>
       </div>
-      {isSticky && (
+      {bare && (
         <div className="widget-actions widget-actions--float" onPointerDown={(event) => event.stopPropagation()}>
           {actionButtons}
         </div>
@@ -766,8 +796,14 @@ export default function App() {
   const [weatherQuery, setWeatherQuery] = useState('');
   const [weatherEditing, setWeatherEditing] = useState(false);
   const [weatherBusy, setWeatherBusy] = useState(false);
+  const [unit, setUnit] = useLocalStorageState(`${KEYS.settings}-unit`, 'c');
+
+  // Widget-local weather unit (falls back to the global preference).
+  const unitFor = (widget) => widget.unit || unit;
 
   const [strokeDraft, setStrokeDraft] = useState(null);
+  const [selection, setSelection] = useState([]);
+  const [editingText, setEditingText] = useState(null);
   const [past, setPast] = useState([]);
   const [future, setFuture] = useState([]);
 
@@ -795,6 +831,37 @@ export default function App() {
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== 'undefined' && window.innerWidth < 820,
   );
+  const [openCategory, setOpenCategory] = useState(null);
+
+  // App-style confirmations: a small strip with an optional Undo action.
+  const toastIdRef = useRef(0);
+  const [toasts, setToasts] = useState([]);
+
+  const dismissToast = useCallback((id) => {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }, []);
+
+  const pushToast = useCallback((message, action) => {
+    toastIdRef.current += 1;
+    const id = toastIdRef.current;
+    setToasts((current) => [...current.slice(-2), { id, message, action }]);
+    window.setTimeout(() => {
+      setToasts((current) => current.filter((toast) => toast.id !== id));
+    }, action ? 8000 : 3200);
+  }, []);
+
+  // A quiet autosave pulse so it is obvious the board is being stored.
+  const [savePulse, setSavePulse] = useState(false);
+  const firstSaveRef = useRef(true);
+  useEffect(() => {
+    if (firstSaveRef.current) {
+      firstSaveRef.current = false;
+      return undefined;
+    }
+    setSavePulse(true);
+    const timer = window.setTimeout(() => setSavePulse(false), 1400);
+    return () => window.clearTimeout(timer);
+  }, [workspaces, settings]);
 
   const audioRef = useRef({ ctx: null, gain: null, source: null, filter: null });
   const volumeRef = useRef(sound.volume);
@@ -1328,6 +1395,29 @@ export default function App() {
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
   }, [wsOpen]);
 
+  /* --- close a category drop-up on an outside click or Escape --- */
+  useEffect(() => {
+    if (!openCategory) return undefined;
+    const onPointerDown = (event) => {
+      if (event.target instanceof Element && event.target.closest('.palette-group')) return;
+      setOpenCategory(null);
+    };
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setOpenCategory(null);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [openCategory]);
+
+  // Losing the bar (whiteboard, collapsed) should not leave a menu hanging.
+  useEffect(() => {
+    if (prefs.whiteboard || !prefs.barOpen) setOpenCategory(null);
+  }, [prefs.whiteboard, prefs.barOpen]);
+
   const startPan = (event) => {
     const target = event.target;
     const onBoard = target === viewportRef.current || (target instanceof Element && target.classList.contains('board'));
@@ -1368,6 +1458,59 @@ export default function App() {
     setFuture([]);
   }, []);
 
+  /* --- select & move --- */
+
+  const moveSelection = useCallback(
+    (event, selectedIds) => {
+      const start = boardPoint(event.clientX, event.clientY);
+      if (!start) return;
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      event.preventDefault();
+      const snapshot = strokes;
+      let moved = false;
+      let last = start;
+      const move = (moveEvent) => {
+        const point = boardPoint(moveEvent.clientX, moveEvent.clientY);
+        if (!point) return;
+        const dx = point.x - last.x;
+        const dy = point.y - last.y;
+        if (!moved && Math.hypot(point.x - start.x, point.y - start.y) < 2) return;
+        moved = true;
+        last = point;
+        setStrokes((current) =>
+          current.map((stroke) => (selectedIds.includes(stroke.id) ? translateStroke(stroke, dx, dy) : stroke)),
+        );
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+        if (moved) pushPast(snapshot);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    },
+    [boardPoint, strokes, setStrokes, pushPast],
+  );
+
+  const addTextStroke = useCallback(
+    (anchor) => {
+      const stroke = {
+        id: uid('stroke'),
+        tool: 'text',
+        color: prefs.drawColor,
+        size: Math.max(14, prefs.drawSize * 6),
+        points: [anchor],
+        text: '',
+      };
+      pushPast(strokes);
+      setStrokes((current) => [...current, stroke]);
+      setEditingText(stroke.id);
+    },
+    [prefs.drawColor, prefs.drawSize, strokes, setStrokes, pushPast],
+  );
+
   const startDraw = useCallback(
     (event) => {
       const target = event.target;
@@ -1379,20 +1522,35 @@ export default function App() {
       if (pointersRef.current.size >= 2) return false;
       const origin = boardPoint(event.clientX, event.clientY);
       if (!origin) return false;
+      if (event.button === 1 || prefs.drawTool === 'pan') return false;
       event.preventDefault();
 
-      const tool = prefs.drawTool;
+      const tool = event.altKey ? 'eraser' : prefs.drawTool;
       const color = prefs.drawColor;
       const size = prefs.drawSize;
+
+      if (tool === 'select') {
+        const hit = [...strokes].reverse().find((stroke) => strokeHit(stroke, origin, size * 2 + 6));
+        if (!hit) {
+          setSelection([]);
+          return false;
+        }
+        setSelection([hit.id]);
+        moveSelection(event, [hit.id]);
+        return true;
+      }
+
+      if (tool === 'text') {
+        addTextStroke(origin);
+        return true;
+      }
 
       if (tool === 'eraser') {
         const snapshot = strokes;
         let working = strokes;
         const eraseAt = (point) => {
           const radius = size * 2 + 8;
-          working = working.filter(
-            (stroke) => !stroke.points.some((handle) => Math.hypot(handle.x - point.x, handle.y - point.y) <= radius),
-          );
+          working = working.filter((stroke) => !strokeHit(stroke, point, radius));
         };
         eraseAt(origin);
         setStrokes(working);
@@ -1420,20 +1578,29 @@ export default function App() {
         return true;
       }
 
-      let working = { id: uid('stroke'), tool, color, size, points: [origin] };
-      setStrokeDraft(working);
+      const draft = { id: uid('stroke'), tool, color, size, fill: prefs.drawFill, points: [origin, origin] };
+      setStrokeDraft(draft);
       let aborted = false;
       const move = (moveEvent) => {
         if (pointersRef.current.size >= 2) {
           aborted = true;
           return;
         }
-        const point = boardPoint(moveEvent.clientX, moveEvent.clientY);
+        let point = boardPoint(moveEvent.clientX, moveEvent.clientY);
         if (!point) return;
-        const last = working.points[working.points.length - 1];
+        if (isShapeTool(tool)) {
+          // Shift snaps lines to 45° and shapes to a square.
+          if (moveEvent.shiftKey) {
+            point =
+              tool === 'rect' || tool === 'ellipse' ? squarePoint(origin, point) : constrainPoint(origin, point);
+          }
+          setStrokeDraft({ ...draft, points: [origin, point] });
+          return;
+        }
+        const last = draft.points[draft.points.length - 1];
         if (Math.hypot(point.x - last.x, point.y - last.y) < 1.5) return;
-        working = { ...working, points: [...working.points, point] };
-        setStrokeDraft(working);
+        draft.points = [...draft.points, point];
+        setStrokeDraft({ ...draft });
       };
       const up = () => {
         window.removeEventListener('pointermove', move);
@@ -1441,18 +1608,40 @@ export default function App() {
         window.removeEventListener('pointercancel', up);
         setStrokeDraft(null);
         if (aborted) return;
+        if (isShapeTool(tool)) {
+          const [start, end] = draft.points;
+          if (Math.hypot(end.x - start.x, end.y - start.y) < 4) return;
+        } else if (draft.points.length < 2) {
+          return;
+        }
         pushPast(strokes);
-        setStrokes((current) => [...current, working]);
+        setStrokes((current) => [...current, draft]);
       };
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
       window.addEventListener('pointercancel', up);
       return true;
     },
-    [boardPoint, prefs.drawTool, prefs.drawColor, prefs.drawSize, strokes, setStrokes, pushPast],
+    [
+      boardPoint,
+      prefs.drawTool,
+      prefs.drawColor,
+      prefs.drawSize,
+      prefs.drawFill,
+      strokes,
+      setStrokes,
+      pushPast,
+      moveSelection,
+      addTextStroke,
+    ],
   );
 
   const onViewportPointerDown = (event) => {
+    // Clicking away from the text tool finishes what is being typed.
+    if (editingText) {
+      commitText(editingText, strokes.find((stroke) => stroke.id === editingText)?.text || '');
+      return;
+    }
     if (prefs.drawMode && !isMobile && prefs.drawTool !== 'pan' && startDraw(event)) return;
     startPan(event);
   };
@@ -1475,72 +1664,128 @@ export default function App() {
     if (!strokes.length) return;
     pushPast(strokes);
     setStrokes([]);
+    setSelection([]);
   }, [strokes, pushPast, setStrokes]);
+
+  const deleteSelection = useCallback(() => {
+    if (!selection.length) return;
+    pushPast(strokes);
+    setStrokes((current) => current.filter((stroke) => !selection.includes(stroke.id)));
+    setSelection([]);
+  }, [selection, strokes, pushPast, setStrokes]);
+
+  const duplicateSelection = useCallback(() => {
+    if (!selection.length) return;
+    pushPast(strokes);
+    const copies = strokes
+      .filter((stroke) => selection.includes(stroke.id))
+      .map((stroke) => translateStroke({ ...stroke, id: uid('stroke') }, 24, 24));
+    setStrokes((current) => [...current, ...copies]);
+    setSelection(copies.map((stroke) => stroke.id));
+  }, [selection, strokes, pushPast, setStrokes]);
+
+  const commitText = useCallback(
+    (id, value) => {
+      const text = value.replace(/\s+$/, '');
+      setStrokes((current) =>
+        text
+          ? current.map((stroke) => (stroke.id === id ? { ...stroke, text } : stroke))
+          : current.filter((stroke) => stroke.id !== id),
+      );
+      setEditingText(null);
+    },
+    [setStrokes],
+  );
+
+  const downloadBlob = useCallback((blob, filename) => {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }, []);
 
   const exportDrawing = useCallback(() => {
     if (!strokes.length) return;
     const pad = 48;
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    strokes.forEach((stroke) =>
-      stroke.points.forEach((point) => {
-        minX = Math.min(minX, point.x);
-        minY = Math.min(minY, point.y);
-        maxX = Math.max(maxX, point.x);
-        maxY = Math.max(maxY, point.y);
-      }),
-    );
-    const width = Math.max(1, maxX - minX) + pad * 2;
-    const height = Math.max(1, maxY - minY) + pad * 2;
+    const box = strokesBounds(strokes, pad);
+    if (!box) return;
     const background = prefs.theme === 'dark' && !prefs.whiteboard ? '#000000' : '#ffffff';
-    const body = strokes
-      .map(
-        (stroke) =>
-          `<path d="${pointsToPath(stroke.points)}" fill="none" stroke="${stroke.color}" stroke-width="${stroke.size}" stroke-linecap="round" stroke-linejoin="round" opacity="${stroke.tool === 'marker' ? 0.4 : 1}" />`,
-      )
-      .join('');
-    const svg =
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(width)}" height="${Math.ceil(height)}" ` +
-      `viewBox="${minX - pad} ${minY - pad} ${width} ${height}">` +
-      `<rect x="${minX - pad}" y="${minY - pad}" width="${width}" height="${height}" fill="${background}" />${body}</svg>`;
+    const svg = strokesToSvg(strokes, { background, pad });
     const image = new Image();
     image.onload = () => {
       const scale = 2;
       const canvas = document.createElement('canvas');
-      canvas.width = Math.ceil(width * scale);
-      canvas.height = Math.ceil(height * scale);
+      canvas.width = Math.ceil(box.width * scale);
+      canvas.height = Math.ceil(box.height * scale);
       const context = canvas.getContext('2d');
       context.scale(scale, scale);
       context.drawImage(image, 0, 0);
       canvas.toBlob((blob) => {
         if (!blob) return;
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
-        anchor.href = url;
-        anchor.download = `focus-canvas-${todayKey()}.png`;
-        anchor.click();
-        URL.revokeObjectURL(url);
+        downloadBlob(blob, `focus-canvas-${todayKey()}.png`);
       });
     };
     image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-  }, [strokes, prefs.theme, prefs.whiteboard]);
+  }, [strokes, prefs.theme, prefs.whiteboard, downloadBlob]);
+
+  const exportDrawingSvg = useCallback(() => {
+    if (!strokes.length) return;
+    const background = prefs.theme === 'dark' && !prefs.whiteboard ? '#000000' : '#ffffff';
+    const svg = strokesToSvg(strokes, { background, pad: 48 });
+    if (!svg) return;
+    downloadBlob(new Blob([svg], { type: 'image/svg+xml' }), `focus-canvas-${todayKey()}.svg`);
+  }, [strokes, prefs.theme, prefs.whiteboard, downloadBlob]);
+
+  const copyDrawing = useCallback(async () => {
+    if (!strokes.length) return;
+    const background = prefs.theme === 'dark' && !prefs.whiteboard ? '#000000' : '#ffffff';
+    const svg = strokesToSvg(strokes, { background, pad: 48 });
+    if (!svg) return;
+    try {
+      const blob = new Blob([svg], { type: 'image/svg+xml' });
+      if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/svg+xml': blob })]);
+      } else {
+        await navigator.clipboard.writeText(svg);
+      }
+      pushToast('Drawing copied to the clipboard');
+    } catch {
+      pushToast('Copying is blocked in this browser');
+    }
+  }, [strokes, prefs.theme, prefs.whiteboard, pushToast]);
+
+  const selectAllStrokes = useCallback(() => setSelection(strokes.map((stroke) => stroke.id)), [strokes]);
 
   useEffect(() => {
     const onKeyDown = (event) => {
       const tag = event.target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || event.target?.isContentEditable) return;
       if (!prefs.drawMode) return;
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+      const key = event.key.toLowerCase();
+      if ((event.metaKey || event.ctrlKey) && key === 'z') {
         event.preventDefault();
         if (event.shiftKey) redoDraw();
         else undoDraw();
+        return;
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      // Single-key tool switching, like a real drawing app.
+      const shortcut = DRAW_TOOLS.find((item) => item.shortcut === key);
+      if (shortcut) {
+        event.preventDefault();
+        setSettings((current) => ({ ...current, drawTool: shortcut.key }));
+        return;
+      }
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        event.preventDefault();
+        deleteSelection();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [prefs.drawMode, undoDraw, redoDraw]);
+  }, [prefs.drawMode, undoDraw, redoDraw, deleteSelection, setSettings]);
 
   /* ------------------------------------------------------------------ */
   /*  Widget mutations                                                  */
@@ -1604,9 +1849,26 @@ export default function App() {
     setWidgets((current) => [...current, createWidget(type, { x: boardX, y: boardY })]);
   }, [setWidgets, view, widgets]);
 
-  const removeWidget = useCallback((id) => {
-    setWidgets((current) => current.filter((widget) => widget.id !== id));
-  }, [setWidgets]);
+  const removeWidget = useCallback(
+    (id) => {
+      const index = widgets.findIndex((widget) => widget.id === id);
+      const removed = index >= 0 ? widgets[index] : null;
+      setWidgets((current) => current.filter((widget) => widget.id !== id));
+      if (removed) {
+        pushToast(`Removed ${removed.title}`, {
+          label: 'Undo',
+          run: () =>
+            setWidgets((current) => {
+              if (current.some((widget) => widget.id === removed.id)) return current;
+              const next = [...current];
+              next.splice(Math.min(index, next.length), 0, removed);
+              return next;
+            }),
+        });
+      }
+    },
+    [widgets, setWidgets, pushToast],
+  );
 
   const duplicateWidget = useCallback((id) => {
     setWidgets((current) => {
@@ -1769,7 +2031,15 @@ export default function App() {
     setWater((current) => ({ ...current, glasses: clamp(current.glasses + delta, 0, 30) }));
   };
 
-  const clearCanvas = () => setWidgets([]);
+  const clearCanvas = () => {
+    if (!widgets.length) return;
+    const snapshot = widgets;
+    setWidgets([]);
+    pushToast(`Cleared ${snapshot.length} widget${snapshot.length === 1 ? '' : 's'}`, {
+      label: 'Undo',
+      run: () => setWidgets(snapshot),
+    });
+  };
 
   const togglePaletteItem = (key) => {
     setSettings((current) => {
@@ -1966,8 +2236,9 @@ export default function App() {
       setView(DEFAULT_VIEW);
       setPaletteOpen(false);
       setSettingsOpen(false);
+      if (template.items.length) pushToast(`${template.label} board ready`);
     },
-    [setWidgets],
+    [setWidgets, pushToast],
   );
 
   const focusWidget = useCallback(
@@ -2046,7 +2317,14 @@ export default function App() {
         run: () => setSettings((current) => ({ ...current, grid: !current.grid })),
       },
       { id: 'action:settings', group: 'Action', label: 'Open customize', icon: SlidersIcon, run: () => setSettingsOpen(true) },
-      { id: 'action:clear', group: 'Action', label: 'Clear canvas', icon: TrashIcon, run: () => setWidgets([]) },
+      { id: 'action:clear', group: 'Action', label: 'Clear canvas', icon: TrashIcon, run: clearCanvas },
+      {
+        id: 'action:bar',
+        group: 'Action',
+        label: prefs.barOpen ? 'Hide widget bar' : 'Show widget bar',
+        icon: LayersIcon,
+        run: () => setSettings((current) => ({ ...current, barOpen: !current.barOpen })),
+      },
       { id: 'ws:new', group: 'Workspace', label: 'New workspace', icon: PlusIcon, run: addWorkspace },
       {
         id: 'draw:toggle',
@@ -2064,8 +2342,27 @@ export default function App() {
       },
       { id: 'draw:undo', group: 'Draw', label: 'Undo stroke', icon: UndoIcon, run: undoDraw },
       { id: 'draw:redo', group: 'Draw', label: 'Redo stroke', icon: RedoIcon, run: redoDraw },
+      { id: 'draw:selectAll', group: 'Draw', label: 'Select all strokes', icon: MoveIcon, run: selectAllStrokes },
+      { id: 'draw:duplicate', group: 'Draw', label: 'Duplicate selected strokes', icon: CopyIcon, run: duplicateSelection },
+      { id: 'draw:delete', group: 'Draw', label: 'Delete selected strokes', icon: TrashIcon, run: deleteSelection },
       { id: 'draw:clear', group: 'Draw', label: 'Clear drawing', icon: TrashIcon, run: clearDrawing },
       { id: 'draw:export', group: 'Draw', label: 'Export drawing as PNG', icon: ImageIcon, run: exportDrawing },
+      { id: 'draw:exportSvg', group: 'Draw', label: 'Export drawing as SVG', icon: ImageIcon, run: exportDrawingSvg },
+      { id: 'draw:copy', group: 'Draw', label: 'Copy drawing', icon: CopyIcon, run: copyDrawing },
+      {
+        id: 'draw:fill',
+        group: 'Draw',
+        label: prefs.drawFill ? 'Shapes: outline only' : 'Shapes: filled',
+        icon: RectangleIcon,
+        run: () => setSettings((current) => ({ ...current, drawFill: !current.drawFill })),
+      },
+      {
+        id: 'unit',
+        group: 'Action',
+        label: unit === 'c' ? 'Weather in Fahrenheit' : 'Weather in Celsius',
+        icon: CloudIcon,
+        run: () => setUnit((current) => (current === 'c' ? 'f' : 'c')),
+      },
     );
     const query = paletteQuery.trim().toLowerCase();
     if (!query) return commands;
@@ -2085,10 +2382,20 @@ export default function App() {
     prefs.theme,
     prefs.drawMode,
     prefs.whiteboard,
+    prefs.barOpen,
+    prefs.drawFill,
+    clearCanvas,
     undoDraw,
     redoDraw,
     clearDrawing,
     exportDrawing,
+    exportDrawingSvg,
+    copyDrawing,
+    selectAllStrokes,
+    duplicateSelection,
+    deleteSelection,
+    unit,
+    setUnit,
     setSettings,
     setWidgets,
   ]);
@@ -2432,16 +2739,19 @@ export default function App() {
 
       case 'notes': {
         const wordCount = notesText.trim() ? notesText.trim().split(/\s+/).length : 0;
+        // Full-bleed like the post-it: the page fills the widget and the
+        // word count floats in the corner until you hover or focus.
         return (
-          <div className="notes-wrap">
+          <div className="notes-wrap notes-wrap--full">
             <textarea
-              className="notes-area"
+              className="notes-area notes-area--full"
               value={notesText}
               onChange={(event) => setNotesText(event.target.value)}
               placeholder="Write something…"
+              spellCheck={false}
             />
-            <div className="notes-foot">
-              <span>
+            <div className="notes-float">
+              <span className="notes-count">
                 {wordCount} word{wordCount === 1 ? '' : 's'}
               </span>
               <button type="button" className="text-btn" onClick={() => setNotesText('')} disabled={!notesText}>
@@ -2825,6 +3135,31 @@ export default function App() {
       case 'weather': {
         const info = weather.data ? weatherInfo(weather.data.current.weather_code) : null;
         const CurrentIcon = info ? WEATHER_ICONS[info.icon] : CloudIcon;
+        const unit = unitFor(widget);
+
+        // A C°/F° switch that keeps its own value on this widget.
+        const unitSwitch = (
+          <div className="unit-switch" role="group" aria-label="Temperature unit">
+            {[
+              { key: 'c', label: '°C' },
+              { key: 'f', label: '°F' },
+            ].map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                className={`unit-option ${unit === option.key ? 'active' : ''}`}
+                aria-pressed={unit === option.key}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => {
+                  updateWidget(widget.id, { unit: option.key });
+                  setUnit(option.key);
+                }}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        );
 
         if (!hasWeatherLocation || weatherEditing) {
           return (
@@ -2832,6 +3167,7 @@ export default function App() {
               <div className="weather-setup-head">
                 <CloudIcon size={18} />
                 <span>Where are you?</span>
+                {unitSwitch}
               </div>
               <form className="inline-form" onSubmit={searchWeatherCity}>
                 <input
@@ -2867,13 +3203,16 @@ export default function App() {
                     <CurrentIcon size={40} />
                   </span>
                   <div className="weather-readout">
-                    <strong>{Math.round(current.temperature_2m)}°</strong>
+                    <strong>{temp(current.temperature_2m, unit)}</strong>
                     <span>{info.label}</span>
                   </div>
                 </div>
-                <div className="weather-place">{weatherLocation.place}</div>
+                <div className="weather-place-row">
+                  <span className="weather-place">{weatherLocation.place}</span>
+                  {unitSwitch}
+                </div>
                 <div className="weather-meta">
-                  <span>Feels {Math.round(current.apparent_temperature)}°</span>
+                  <span>Feels {temp(current.apparent_temperature, unit)}</span>
                   <span>{current.relative_humidity_2m}% humidity</span>
                   <span>{Math.round(current.wind_speed_10m)} km/h</span>
                 </div>
@@ -2887,7 +3226,7 @@ export default function App() {
                           <span>{new Date(`${day}T00:00:00`).toLocaleDateString([], { weekday: 'short' })}</span>
                           <DayIcon size={15} />
                           <span className="weather-day-temps">
-                            {Math.round(daily.temperature_2m_max[dayIndex + 1])}° / {Math.round(daily.temperature_2m_min[dayIndex + 1])}°
+                            {temp(daily.temperature_2m_max[dayIndex + 1], unit)} / {temp(daily.temperature_2m_min[dayIndex + 1], unit)}
                           </span>
                         </div>
                       );
@@ -3064,8 +3403,54 @@ export default function App() {
       case 'iframe': {
         const src = widget.src || '';
         const embeddable = VALID_PROTOCOL.test(src);
+
+        // A working embed becomes a full widget: no setup bar, no link footer.
+        if (embeddable) {
+          return (
+            <div className="widget-body iframe-body iframe-body--live">
+              <div className="iframe-frame">
+                <iframe
+                  key={widget.reload || 0}
+                  src={src}
+                  title={widget.title || 'Embedded page'}
+                  sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-popups-to-escape-sandbox"
+                  referrerPolicy="no-referrer"
+                  loading="lazy"
+                />
+              </div>
+              <div className="iframe-tools" onPointerDown={(event) => event.stopPropagation()}>
+                <button
+                  type="button"
+                  className="iframe-tool"
+                  title={`Reload ${src}`}
+                  aria-label="Reload embed"
+                  onClick={() => updateWidget(widget.id, { reload: (widget.reload || 0) + 1 })}
+                >
+                  <RefreshIcon size={14} />
+                </button>
+                <a className="iframe-tool" href={src} target="_blank" rel="noreferrer noopener" title={`Open ${src}`}>
+                  <ExternalIcon size={14} />
+                </a>
+                <button
+                  type="button"
+                  className="iframe-tool"
+                  title="Change the embed URL"
+                  aria-label="Change embed URL"
+                  onClick={() => updateWidget(widget.id, { src: '', url: src })}
+                >
+                  <FrameIcon size={14} />
+                </button>
+              </div>
+            </div>
+          );
+        }
+
         return (
-          <div className="widget-body iframe-body">
+          <div className="widget-body iframe-body iframe-setup">
+            <span className="iframe-setup-icon" aria-hidden="true">
+              <FrameIcon size={22} />
+            </span>
+            <strong className="iframe-setup-title">Embed a page</strong>
             <form
               className="inline-form"
               onSubmit={(event) => {
@@ -3085,40 +3470,9 @@ export default function App() {
                 <FrameIcon size={15} />
               </button>
             </form>
-            {embeddable ? (
-              <>
-                <div className="iframe-frame">
-                  <iframe
-                    key={widget.reload || 0}
-                    src={src}
-                    title={widget.title || 'Embedded page'}
-                    sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-popups-to-escape-sandbox"
-                    referrerPolicy="no-referrer"
-                    loading="lazy"
-                  />
-                </div>
-                <div className="iframe-foot">
-                  <span className="iframe-url" title={src}>
-                    {src}
-                  </span>
-                  <button
-                    type="button"
-                    className="text-btn"
-                    onClick={() => updateWidget(widget.id, { reload: (widget.reload || 0) + 1 })}
-                  >
-                    <RefreshIcon size={13} /> Reload
-                  </button>
-                  <a className="text-btn" href={src} target="_blank" rel="noreferrer noopener">
-                    <ExternalIcon size={13} /> Open
-                  </a>
-                </div>
-              </>
-            ) : (
-              <div className="hint">
-                Paste a YouTube, Docs, or any site URL. Some pages block embedding — open them in a new tab if the frame
-                stays blank.
-              </div>
-            )}
+            <div className="micro-copy">
+              YouTube, Docs, slides — most pages can be framed. Some sites block it; open them in a new tab instead.
+            </div>
           </div>
         );
       }
@@ -3158,6 +3512,18 @@ export default function App() {
   );
 
   const activePaletteIndex = Math.min(paletteIndex, Math.max(0, paletteCommands.length - 1));
+
+  // Widget bar: one button per category, each opening a drop-up of its widgets.
+  const paletteGroups = useMemo(
+    () =>
+      WIDGET_CATEGORIES.map((category) => ({
+        ...category,
+        items: WIDGET_CATALOG.filter(
+          (item) => item.category === category.key && !prefs.hiddenPalette.includes(item.key),
+        ),
+      })).filter((category) => category.items.length > 0),
+    [prefs.hiddenPalette],
+  );
 
   const ThemeIcon = prefs.theme === 'dark' ? SunIcon : MoonIcon;
 
@@ -3294,6 +3660,10 @@ export default function App() {
         </div>
 
         <div className="topbar-actions">
+          <span className={`save-chip ${savePulse ? 'is-live' : ''}`} aria-live="polite">
+            <span className="save-dot" aria-hidden="true" />
+            {savePulse ? 'Saved' : 'Autosave'}
+          </span>
           {!isMobile && (
             <button
               type="button"
@@ -3387,20 +3757,42 @@ export default function App() {
               </WidgetCard>
             ))}
             <svg className="draw-layer" aria-hidden="true">
-              {[...strokes, ...(strokeDraft ? [strokeDraft] : [])].map((stroke) => (
-                <path
-                  key={stroke.id}
-                  d={pointsToPath(stroke.points)}
-                  fill="none"
-                  stroke={stroke.color}
-                  strokeWidth={stroke.size}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity={stroke.tool === 'marker' ? 0.4 : 1}
-                />
-              ))}
+              {strokes.map((stroke) =>
+                stroke.id === editingText ? null : <Stroke key={stroke.id} stroke={stroke} />,
+              )}
+              {strokeDraft && <Stroke stroke={strokeDraft} />}
+              {selection.map((id) => {
+                const stroke = strokes.find((item) => item.id === id);
+                return stroke ? (
+                  <SelectionOutline
+                    key={id}
+                    stroke={stroke}
+                    onDelete={() => {
+                      pushPast(strokes);
+                      setStrokes((current) => current.filter((item) => item.id !== id));
+                      setSelection((current) => current.filter((item) => item !== id));
+                    }}
+                  />
+                ) : null;
+              })}
             </svg>
           </div>
+
+          {editingText &&
+            (() => {
+              const stroke = strokes.find((item) => item.id === editingText);
+              if (!stroke) return null;
+              return (
+                <TextEditor
+                  stroke={stroke}
+                  view={view}
+                  onChange={(value) =>
+                    setStrokes((current) => current.map((item) => (item.id === editingText ? { ...item, text: value } : item)))
+                  }
+                  onCommit={(value) => commitText(editingText, value)}
+                />
+              );
+            })()}
 
           {!prefs.drawMode && visibleWidgets.length === 0 && renderWelcome(false)}
 
@@ -3421,47 +3813,125 @@ export default function App() {
         </div>
       )}
 
-      {!prefs.whiteboard && (
-        <nav className="toolbar">
+      {!prefs.whiteboard && prefs.barOpen && (
+        <nav className="toolbar" aria-label="Widget bar">
           <div className="toolbar-palette">
-            {WIDGET_CATALOG.filter((item) => !prefs.hiddenPalette.includes(item.key)).map((item) => {
-              const Icon = item.icon;
+            {paletteGroups.map((category) => {
+              const CategoryIcon = category.icon;
+              const isOpen = openCategory === category.key;
               return (
-                <button key={item.key} type="button" className="palette-item" onClick={() => addWidget(item.key)} title={`Add ${item.label}`}>
-                  <Icon size={16} />
-                  <span>{item.label}</span>
-                </button>
+                <div className={`palette-group ${isOpen ? 'open' : ''}`} key={category.key}>
+                  <button
+                    type="button"
+                    className={`palette-item palette-cat ${isOpen ? 'active' : ''}`}
+                    onClick={() => setOpenCategory((current) => (current === category.key ? null : category.key))}
+                    aria-haspopup="menu"
+                    aria-expanded={isOpen}
+                    title={`${category.label} — ${category.items.length} widget${category.items.length === 1 ? '' : 's'}`}
+                  >
+                    <CategoryIcon size={16} />
+                    <span>{category.label}</span>
+                    <ChevronDownIcon size={13} className="palette-caret" />
+                  </button>
+                  {isOpen && (
+                    <div className="palette-dropup" role="menu">
+                      <div className="palette-dropup-head">
+                        <span className="palette-dropup-title">{category.label}</span>
+                        <span className="palette-dropup-blurb">{category.blurb}</span>
+                      </div>
+                      {category.items.map((item) => {
+                        const Icon = item.icon;
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            role="menuitem"
+                            className="palette-row"
+                            onClick={() => {
+                              addWidget(item.key);
+                              setOpenCategory(null);
+                            }}
+                          >
+                            <Icon size={16} />
+                            <span>{item.label}</span>
+                            <PlusIcon size={13} className="palette-row-add" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               );
             })}
-            {WIDGET_CATALOG.every((item) => prefs.hiddenPalette.includes(item.key)) && (
-              <span className="palette-empty">All widgets hidden</span>
-            )}
+            {paletteGroups.length === 0 && <span className="palette-empty">All widgets hidden</span>}
           </div>
           <div className="toolbar-end">
             <button type="button" className="palette-text" onClick={clearCanvas} disabled={visibleWidgets.length === 0}>
               <TrashIcon size={15} />
               <span>Clear</span>
             </button>
+            <button
+              type="button"
+              className="palette-text"
+              onClick={() => setSettings((current) => ({ ...current, barOpen: false }))}
+              title="Hide the widget bar"
+            >
+              <ChevronDownIcon size={15} />
+              <span>Hide bar</span>
+            </button>
           </div>
         </nav>
       )}
 
+      {!prefs.whiteboard && !prefs.barOpen && (
+        <button
+          type="button"
+          className="palette-handle"
+          onClick={() => setSettings((current) => ({ ...current, barOpen: true }))}
+          title="Show the widget bar"
+        >
+          <LayersIcon size={16} />
+          <span>Widgets</span>
+          <ChevronDownIcon size={14} className="palette-handle-caret" />
+        </button>
+      )}
+
+      {toasts.length > 0 && (
+        <div className="toast-stack" role="status" aria-live="polite">
+          {toasts.map((toast) => (
+            <div className="toast" key={toast.id}>
+              <span className="toast-text">{toast.message}</span>
+              {toast.action && (
+                <button
+                  type="button"
+                  className="toast-action"
+                  onClick={() => {
+                    toast.action.run();
+                    dismissToast(toast.id);
+                  }}
+                >
+                  {toast.action.label}
+                </button>
+              )}
+              <button type="button" className="toast-close" onClick={() => dismissToast(toast.id)} aria-label="Dismiss">
+                <XIcon size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {prefs.drawMode && !isMobile && (
         <div className="draw-toolbar" role="toolbar" aria-label="Drawing tools">
-          <div className="draw-group">
-            {[
-              { key: 'pen', label: 'Pen', icon: PenIcon },
-              { key: 'marker', label: 'Highlighter', icon: HighlighterIcon },
-              { key: 'eraser', label: 'Eraser', icon: EraserIcon },
-              { key: 'pan', label: 'Pan board', icon: HandIcon },
-            ].map((item) => {
+          <div className="draw-group draw-group--tools">
+            {DRAW_TOOLS.map((item) => {
               const Icon = item.icon;
               return (
                 <button
                   key={item.key}
                   type="button"
                   className={`draw-btn ${prefs.drawTool === item.key ? 'active' : ''}`}
-                  title={item.label}
+                  title={`${item.label} (${item.shortcut.toUpperCase()})`}
                   aria-label={item.label}
                   onClick={() => setSettings((current) => ({ ...current, drawTool: item.key }))}
                 >
@@ -3470,7 +3940,8 @@ export default function App() {
               );
             })}
           </div>
-          {prefs.drawTool !== 'eraser' && prefs.drawTool !== 'pan' && (
+
+          {!['eraser', 'pan', 'select'].includes(prefs.drawTool) && (
             <>
               <span className="draw-divider" />
               <div className="draw-group draw-group--colors">
@@ -3493,20 +3964,42 @@ export default function App() {
               </div>
             </>
           )}
-          <span className="draw-divider" />
-          <div className="draw-group">
-            {DRAW_SIZES.map((size) => (
+
+          {prefs.drawTool !== 'select' && prefs.drawTool !== 'pan' && (
+            <>
+              <span className="draw-divider" />
+              <div className="draw-group">
+                {DRAW_SIZES.map((size) => (
+                  <button
+                    key={size}
+                    type="button"
+                    className={`draw-btn draw-btn--size ${prefs.drawSize === size ? 'active' : ''}`}
+                    aria-label={`Stroke size ${size}`}
+                    onClick={() => setSettings((current) => ({ ...current, drawSize: size }))}
+                  >
+                    <span className="draw-dot" style={{ width: size * 1.5, height: size * 1.5 }} />
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {(prefs.drawTool === 'rect' || prefs.drawTool === 'ellipse') && (
+            <>
+              <span className="draw-divider" />
               <button
-                key={size}
                 type="button"
-                className={`draw-btn draw-btn--size ${prefs.drawSize === size ? 'active' : ''}`}
-                aria-label={`Stroke size ${size}`}
-                onClick={() => setSettings((current) => ({ ...current, drawSize: size }))}
+                className={`draw-btn draw-btn--wide ${prefs.drawFill ? 'active' : ''}`}
+                title="Fill the shape"
+                aria-pressed={prefs.drawFill}
+                onClick={() => setSettings((current) => ({ ...current, drawFill: !current.drawFill }))}
               >
-                <span className="draw-dot" style={{ width: size * 1.5, height: size * 1.5 }} />
+                <span className={`draw-fill-icon ${prefs.drawFill ? 'on' : ''}`} aria-hidden="true" />
+                <span>Fill</span>
               </button>
-            ))}
-          </div>
+            </>
+          )}
+
           <span className="draw-divider" />
           <div className="draw-group">
             <button type="button" className="draw-btn" title="Undo" aria-label="Undo stroke" onClick={undoDraw} disabled={!past.length}>
@@ -3515,11 +4008,48 @@ export default function App() {
             <button type="button" className="draw-btn" title="Redo" aria-label="Redo stroke" onClick={redoDraw} disabled={!future.length}>
               <RedoIcon size={16} />
             </button>
-            <button type="button" className="draw-btn" title="Clear drawing" aria-label="Clear drawing" onClick={clearDrawing} disabled={!strokes.length}>
+            <button
+              type="button"
+              className="draw-btn"
+              title="Duplicate selected"
+              aria-label="Duplicate selected"
+              onClick={duplicateSelection}
+              disabled={!selection.length}
+            >
+              <CopyIcon size={16} />
+            </button>
+            <button
+              type="button"
+              className="draw-btn"
+              title="Delete selected"
+              aria-label="Delete selected"
+              onClick={deleteSelection}
+              disabled={!selection.length}
+            >
               <TrashIcon size={16} />
             </button>
-            <button type="button" className="draw-btn" title="Export as PNG" aria-label="Export drawing" onClick={exportDrawing} disabled={!strokes.length}>
+          </div>
+
+          <span className="draw-divider" />
+          <div className="draw-group">
+            <button type="button" className="draw-btn" title="Export as PNG" aria-label="Export as PNG" onClick={exportDrawing} disabled={!strokes.length}>
               <ImageIcon size={16} />
+            </button>
+            <button type="button" className="draw-btn draw-btn--wide" title="Export as SVG" onClick={exportDrawingSvg} disabled={!strokes.length}>
+              <span>SVG</span>
+            </button>
+            <button type="button" className="draw-btn draw-btn--wide" title="Copy drawing" onClick={copyDrawing} disabled={!strokes.length}>
+              <span>Copy</span>
+            </button>
+            <button
+              type="button"
+              className="draw-btn"
+              title="Clear drawing"
+              aria-label="Clear drawing"
+              onClick={clearDrawing}
+              disabled={!strokes.length}
+            >
+              <TrashIcon size={16} />
             </button>
           </div>
           <span className="draw-divider" />
@@ -3665,6 +4195,15 @@ export default function App() {
         </label>
 
         <label className="toggle-row">
+          <span>Show widget bar</span>
+          <input
+            type="checkbox"
+            checked={prefs.barOpen}
+            onChange={(event) => setSettings((current) => ({ ...current, barOpen: event.target.checked }))}
+          />
+        </label>
+
+        <label className="toggle-row">
           <span>Focus chime</span>
           <input
             type="checkbox"
@@ -3716,10 +4255,38 @@ export default function App() {
               onChange={(event) => setSettings((current) => ({ ...current, whiteboard: event.target.checked }))}
             />
           </label>
+          <label className="toggle-row">
+            <span>Fill shapes</span>
+            <input
+              type="checkbox"
+              checked={prefs.drawFill}
+              onChange={(event) => setSettings((current) => ({ ...current, drawFill: event.target.checked }))}
+            />
+          </label>
           <div className="micro-copy">
-            Draw over your widgets, or switch to a clean whiteboard. Pen, highlighter and eraser with undo, redo, and PNG
-            export. Stored in this browser.
+            Draw over your widgets, or switch to a clean whiteboard. Pen, highlighter, shapes, arrows, text and an eraser,
+            with select-and-move, undo, redo, and PNG/SVG export. Stored in this browser.
           </div>
+        </div>
+
+        <div className="field">
+          <span className="field-label">Weather units</span>
+          <div className="segmented">
+            {[
+              { key: 'c', label: '°C' },
+              { key: 'f', label: '°F' },
+            ].map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                className={`seg ${unit === option.key ? 'active' : ''}`}
+                onClick={() => setUnit(option.key)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <div className="micro-copy">Each weather widget can also switch on its own.</div>
         </div>
 
         <div className="field">
