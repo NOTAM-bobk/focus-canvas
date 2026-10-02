@@ -363,6 +363,26 @@ function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, 
     pressRef.current = null;
   };
 
+  // Drag from anywhere on the card, as long as the press did not land on a
+  // control the user needs to click, type into, or resize from.
+  const beginDrag = (event) => {
+    if (mobile || widget.locked) return;
+    const target = event.target;
+    if (
+      target instanceof Element &&
+      target.closest(
+        'button, a, input, textarea, select, label, [contenteditable="true"], .handle, .widget-resize',
+      )
+    )
+      return;
+    onDragStart(event);
+  };
+
+  const handlePointerDown = (event) => {
+    beginLongPress(event);
+    beginDrag(event);
+  };
+
   useEffect(() => () => clearTimeout(longPressRef.current), []);
 
   const cardStyle = mobile
@@ -378,7 +398,7 @@ function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, 
       style={cardStyle}
       onMouseDown={onFocus}
       onTouchStart={onFocus}
-      onPointerDown={beginLongPress}
+      onPointerDown={handlePointerDown}
       onPointerMove={moveLongPress}
       onPointerUp={endLongPress}
       onPointerCancel={endLongPress}
@@ -390,7 +410,7 @@ function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, 
           {meta ? meta.label : widget.title}
         </button>
       )}
-      <header className={`widget-header ${mobile ? 'static' : ''}`} onPointerDown={mobile || widget.locked ? undefined : onDragStart}>
+      <header className={`widget-header ${mobile ? 'static' : ''}`}>
         <span className="widget-title">
           <Icon size={15} />
           {widget.title}
@@ -440,6 +460,8 @@ function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, 
 
 export default function App() {
   const viewportRef = useRef(null);
+  const pointersRef = useRef(new Map());
+  const pinchRef = useRef(null);
 
   const [settings, setSettings] = useLocalStorageState(KEYS.settings, defaultSettings);
   const prefs = useMemo(() => ({ ...defaultSettings, ...settings }), [settings]);
@@ -824,6 +846,66 @@ export default function App() {
     return () => element.removeEventListener('wheel', onWheel);
   }, [isMobile, zoomAt]);
 
+  /* --- two-finger pinch to zoom (tablets and touch screens) --- */
+  useEffect(() => {
+    const element = viewportRef.current;
+    if (!element || isMobile) return undefined;
+    const pointers = pointersRef.current;
+
+    const distanceBetween = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+    const onPointerDown = (event) => {
+      if (event.pointerType === 'mouse') return;
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (pointers.size === 2) {
+        const [a, b] = pointers.values();
+        pinchRef.current = { distance: distanceBetween(a, b) };
+      }
+    };
+
+    const onPointerMove = (event) => {
+      if (!pointers.has(event.pointerId)) return;
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (pointers.size < 2 || !pinchRef.current) return;
+      const [a, b] = pointers.values();
+      const nextDistance = distanceBetween(a, b);
+      const previous = pinchRef.current.distance;
+      if (previous > 0 && nextDistance > 0) {
+        zoomAt(nextDistance / previous, (a.x + b.x) / 2, (a.y + b.y) / 2);
+      }
+      pinchRef.current = { distance: nextDistance };
+    };
+
+    const release = (event) => {
+      pointers.delete(event.pointerId);
+      if (pointers.size < 2) pinchRef.current = null;
+    };
+
+    element.addEventListener('pointerdown', onPointerDown);
+    element.addEventListener('pointermove', onPointerMove);
+    element.addEventListener('pointerup', release);
+    element.addEventListener('pointercancel', release);
+    return () => {
+      element.removeEventListener('pointerdown', onPointerDown);
+      element.removeEventListener('pointermove', onPointerMove);
+      element.removeEventListener('pointerup', release);
+      element.removeEventListener('pointercancel', release);
+      pointers.clear();
+      pinchRef.current = null;
+    };
+  }, [isMobile, zoomAt]);
+
+  /* --- clicking outside any widget clears the selection --- */
+  useEffect(() => {
+    const onPointerDown = (event) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest('.widget')) return;
+      setFocusedId(null);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, []);
+
   const startPan = (event) => {
     const target = event.target;
     const onBoard = target === viewportRef.current || (target instanceof Element && target.classList.contains('board'));
@@ -834,6 +916,8 @@ export default function App() {
     const origin = { ...view };
 
     const move = (moveEvent) => {
+      // While two fingers are down the gesture is a pinch, not a pan.
+      if (pointersRef.current.size >= 2) return;
       setView({ ...origin, x: origin.x + (moveEvent.clientX - startX), y: origin.y + (moveEvent.clientY - startY) });
     };
     const up = () => {
@@ -923,27 +1007,25 @@ export default function App() {
     const step = prefs.gridSize;
     const MIN_W = 180;
     const MIN_H = 120;
+    const MAX_W = 1000;
+    const MAX_H = 800;
 
     const move = (moveEvent) => {
       const dx = (moveEvent.clientX - startX) / scale;
       const dy = (moveEvent.clientY - startY) / scale;
       let { x, y, w, h } = origin;
-      if (corner.includes('e')) w = Math.max(MIN_W, origin.w + dx);
-      if (corner.includes('s')) h = Math.max(MIN_H, origin.h + dy);
-      if (corner.includes('w')) {
-        w = Math.max(MIN_W, origin.w - dx);
-        x = origin.x + origin.w - w;
-      }
-      if (corner.includes('n')) {
-        h = Math.max(MIN_H, origin.h - dy);
-        y = origin.y + origin.h - h;
-      }
+      if (corner.includes('e')) w = origin.w + dx;
+      if (corner.includes('s')) h = origin.h + dy;
+      if (corner.includes('w')) w = origin.w - dx;
+      if (corner.includes('n')) h = origin.h - dy;
       if (snap) {
-        w = Math.max(MIN_W, Math.round(w / step) * step);
-        h = Math.max(MIN_H, Math.round(h / step) * step);
-        if (corner.includes('w')) x = origin.x + origin.w - w;
-        if (corner.includes('n')) y = origin.y + origin.h - h;
+        w = Math.round(w / step) * step;
+        h = Math.round(h / step) * step;
       }
+      w = clamp(w, MIN_W, MAX_W);
+      h = clamp(h, MIN_H, MAX_H);
+      if (corner.includes('w')) x = origin.x + origin.w - w;
+      if (corner.includes('n')) y = origin.y + origin.h - h;
       updateWidget(widgetId, { x, y, w, h });
     };
     const up = () => {

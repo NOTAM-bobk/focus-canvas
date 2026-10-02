@@ -294,17 +294,32 @@ textarea {
   background: var(--surface);
   box-shadow: var(--shadow);
   overflow: visible;
+  cursor: grab;
+  user-select: none;
+  transition: border-color 0.16s ease, box-shadow 0.18s ease, opacity 0.2s ease;
+  animation: widgetIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* keep typing and text selection usable inside a draggable card */
+.widget input,
+.widget textarea {
+  cursor: auto;
+  user-select: text;
 }
 
 .widget.is-focused {
   border-color: var(--border-2);
   z-index: 4;
+  box-shadow: var(--shadow), 0 0 0 1px var(--accent),
+    0 0 0 6px color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 .widget--flow {
   position: relative;
   width: 100%;
   min-height: 150px;
+  cursor: auto;
+  user-select: auto;
   -webkit-touch-callout: none;
 }
 
@@ -1918,6 +1933,62 @@ textarea {
 
 .palette-empty-row {
   padding: 14px;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Motion                                                            */
+/* ------------------------------------------------------------------ */
+
+@keyframes widgetIn {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes overlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(-10px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes hudIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.palette-overlay {
+  animation: overlayIn 0.16s ease both;
+}
+
+.palette-modal {
+  animation: modalIn 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.zoom-hud {
+  animation: hudIn 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.canvas-welcome {
+  animation: overlayIn 0.3s ease both;
+}
+
+.palette-item {
+  transition: transform 0.14s ease, color 0.14s ease, background 0.14s ease;
+}
+
+.palette-item:hover {
+  transform: translateY(-1px);
+}
+
+.template-card {
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.template-card:hover:not(:disabled) {
+  transform: translateY(-2px);
 }
 
 /* ------------------------------------------------------------------ */

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Focus Canvas">
+  <defs>
+    <linearGradient id="ring" x1="16" y1="12" x2="50" y2="54" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3b82f6" />
+      <stop offset="1" stop-color="#06b6d4" />
+    </linearGradient>
+    <pattern id="dots" width="9" height="9" patternUnits="userSpaceOnUse">
+      <circle cx="1.2" cy="1.2" r="1.1" fill="#ffffff" fill-opacity="0.16" />
+    </pattern>
+    <clipPath id="tile">
+      <rect width="64" height="64" rx="15" />
+    </clipPath>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="#0a0a0a" />
+  <rect width="64" height="64" fill="url(#dots)" clip-path="url(#tile)" />
+  <g stroke="#ffffff" stroke-opacity="0.35" stroke-width="3" stroke-linecap="round">
+    <path d="M32 9v5" />
+    <path d="M32 50v5" />
+    <path d="M9 32h5" />
+    <path d="M50 32h5" />
+  </g>
+  <circle cx="32" cy="32" r="14" fill="none" stroke="url(#ring)" stroke-width="4" />
+  <circle cx="32" cy="32" r="5" fill="url(#ring)" />
+</svg>
