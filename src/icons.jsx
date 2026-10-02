@@ -464,6 +464,33 @@ export const FrameIcon = (props) => (
   </Svg>
 );
 
+export const MaximizeIcon = (props) => (
+  <Svg {...props}>
+    <path d="M8 3H3v5" />
+    <path d="M16 3h5v5" />
+    <path d="M16 21h5v-5" />
+    <path d="M8 21H3v-5" />
+  </Svg>
+);
+
+export const MinimizeIcon = (props) => (
+  <Svg {...props}>
+    <path d="M8 3v5H3" />
+    <path d="M16 3v5h5" />
+    <path d="M16 21v-5h5" />
+    <path d="M8 21v-5H3" />
+  </Svg>
+);
+
+export const ExpandIcon = (props) => (
+  <Svg {...props}>
+    <path d="M3 9V3h6" />
+    <path d="M21 9V3h-6" />
+    <path d="M21 15v6h-6" />
+    <path d="M3 15v6h6" />
+  </Svg>
+);
+
 export const ICONS = {
   timer: TimerIcon,
   stopwatch: StopwatchIcon,

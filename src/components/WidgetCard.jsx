@@ -1,6 +1,6 @@
 // A single widget frame: chrome, drag handle, resize handles, and actions.
 import { useEffect, useRef, useState } from 'react';
-import { CopyIcon, ICONS, LockIcon, TimerIcon, UnlockIcon, XIcon } from '../icons';
+import { CopyIcon, ICONS, LockIcon, MaximizeIcon, TimerIcon, UnlockIcon, XIcon } from '../icons';
 import { CATALOG_MAP, CORNERS } from '../data/catalog';
 import { VALID_PROTOCOL } from '../lib/utils';
 
@@ -14,6 +14,7 @@ export default function WidgetCard({
   onRemove,
   onDuplicate,
   onToggleLock,
+  onFullscreen,
   onDragStart,
   onResizeStart,
   onMobileResizeStart,
@@ -95,6 +96,11 @@ export default function WidgetCard({
 
   const actionButtons = (
     <>
+      {onFullscreen && !mobile && (
+        <button type="button" onClick={onFullscreen} aria-label={`Open ${widget.title} full screen`}>
+          <MaximizeIcon size={14} />
+        </button>
+      )}
       <button
         type="button"
         className={widget.locked ? 'active' : ''}

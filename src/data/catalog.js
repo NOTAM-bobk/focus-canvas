@@ -71,6 +71,33 @@ export const WIDGET_CATALOG = [
 export const CATALOG_MAP = Object.fromEntries(WIDGET_CATALOG.map((item) => [item.key, item]));
 export const CATEGORY_MAP = Object.fromEntries(WIDGET_CATEGORIES.map((item) => [item.key, item]));
 
+// Comfortable starting sizes so a freshly added widget shows all of its content
+// without scrolling or clipping. Resizing still reflows from here.
+export const CONTENT_SIZE = {
+  timer: { w: 280, h: 230 },
+  stopwatch: { w: 250, h: 210 },
+  pandora: { w: 300, h: 340 },
+  breath: { w: 250, h: 290 },
+  tasks: { w: 330, h: 300 },
+  habits: { w: 360, h: 280 },
+  countdown: { w: 300, h: 250 },
+  todoist: { w: 360, h: 420 },
+  notes: { w: 350, h: 280 },
+  sticky: { w: 250, h: 250 },
+  flashcards: { w: 320, h: 300 },
+  clock: { w: 260, h: 190 },
+  stats: { w: 310, h: 240 },
+  weather: { w: 320, h: 340 },
+  quote: { w: 350, h: 215 },
+  water: { w: 260, h: 240 },
+  links: { w: 290, h: 250 },
+  sound: { w: 320, h: 300 },
+  picker: { w: 280, h: 250 },
+  iframe: { w: 460, h: 360 },
+};
+
+export const widgetSize = (type) => CONTENT_SIZE[type] || CATALOG_MAP[type] || { w: 260, h: 200 };
+
 export const STICKY_COLORS = ['#f7d64c', '#ffa07a', '#8fd3ff', '#9ae6b4', '#d9b8ff'];
 
 export const WS_COLORS = ['#0070f3', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4', '#64748b'];
@@ -163,6 +190,7 @@ export const seedWorkspaces = () => {
 
 export const createWidget = (type, overrides = {}) => {
   const meta = CATALOG_MAP[type];
+  const size = widgetSize(type);
   return {
     id: uid(type),
     type,
@@ -170,8 +198,8 @@ export const createWidget = (type, overrides = {}) => {
     visible: true,
     x: 120,
     y: 120,
-    w: meta ? meta.w : 260,
-    h: meta ? meta.h : 200,
+    w: size.w,
+    h: size.h,
     ...(type === 'sticky' ? { text: '', color: STICKY_COLORS[0] } : {}),
     ...(type === 'flashcards' ? { deck: '', cardIndex: 0, flipped: false, editing: false, order: [] } : {}),
     ...(type === 'picker' ? { names: '', editing: false } : {}),

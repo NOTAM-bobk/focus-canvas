@@ -14,6 +14,7 @@ import {
   CommandIcon,
   CopyIcon,
   EraserIcon,
+  ExpandIcon,
   FitIcon,
   FlashcardIcon,
   HandIcon,
@@ -23,6 +24,7 @@ import {
   LayersIcon,
   LineIcon,
   LockIcon,
+  MinimizeIcon,
   MinusIcon,
   MoonIcon,
   MoveIcon,
@@ -90,6 +92,7 @@ import {
   createWidget,
   makeWorkspace,
   seedWorkspaces,
+  widgetSize,
 } from './data/catalog';
 import WidgetCard from './components/WidgetCard';
 import renderWidgetBody from './widgets/renderWidgetBody';
@@ -164,6 +167,8 @@ export default function App() {
   const [todoistTokenDraft, setTodoistTokenDraft] = useState('');
   const [todoistEditing, setTodoistEditing] = useState(false);
   const [todoistBusy, setTodoistBusy] = useState(null);
+  const [todoistSort, setTodoistSort] = useState('due');
+  const [todoistComposer, setTodoistComposer] = useState({ priority: 1, projectId: '', due: '' });
 
   const [weatherLocation, setWeatherLocation] = useLocalStorageState(KEYS.weather, { place: '', latitude: null, longitude: null });
   const [weather, setWeather] = useState({ status: 'idle', data: null, error: '' });
@@ -189,7 +194,47 @@ export default function App() {
 
   const [timer, setTimer] = useState({ running: false, remaining: 25 * 60, preset: 25 * 60, mode: 'focus', endAt: 0 });
   const [stopwatch, setStopwatch] = useState({ running: false, elapsed: 0, startedAt: 0, base: 0, laps: [] });
-  const [pandora, setPandora] = useState({ running: false, remaining: 20 * 60, preset: 20 * 60, endAt: 0 });
+  const [pandora, setPandora] = useState({
+    running: false,
+    phase: 'focus',
+    remaining: 20 * 60,
+    endAt: 0,
+    focus: 20 * 60,
+    breakLen: 5 * 60,
+    longBreak: 15 * 60,
+    rounds: 4,
+    completed: 0,
+  });
+
+  // Length of the phase that is about to start — a long break lands every
+  // `rounds` completed focus sessions.
+  const pandoraLengthFor = useCallback(
+    (state, phase) =>
+      phase === 'focus'
+        ? state.focus
+        : state.rounds > 0 && state.completed > 0 && state.completed % state.rounds === 0
+          ? state.longBreak
+          : state.breakLen,
+    [],
+  );
+
+  // Move the interval timer to its next focus/break phase.
+  const advancePandora = useCallback((current, autoStart) => {
+    const start = (phase, length, extra) => ({
+      ...current,
+      phase,
+      remaining: length,
+      running: autoStart,
+      endAt: autoStart ? Date.now() + length * 1000 : 0,
+      ...extra,
+    });
+    if (current.phase === 'focus') {
+      const completed = current.completed + 1;
+      const isLong = current.rounds > 0 && completed % current.rounds === 0;
+      return start('break', isLong ? current.longBreak : current.breakLen, { completed });
+    }
+    return start('focus', current.focus, {});
+  }, []);
   const [breath, setBreath] = useState({ running: false, startedAt: 0 });
   const [pickerState, setPickerState] = useState({});
 
@@ -197,6 +242,8 @@ export default function App() {
   const [view, setView] = useState(DEFAULT_VIEW);
   const [focusedId, setFocusedId] = useState(null);
   const [resizing, setResizing] = useState(null);
+  const [guides, setGuides] = useState([]);
+  const [fullscreenId, setFullscreenId] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
@@ -335,12 +382,20 @@ export default function App() {
     }
   }, [timer, prefs.autoNext, playChime, setStats]);
 
+  // Interval timer: chime at each phase end, count focus sessions, and roll
+  // straight into the next focus/break phase (auto-starting when enabled).
   useEffect(() => {
-    if (pandora.running && pandora.remaining === 0) {
-      playChime('break');
-      setPandora((current) => ({ ...current, running: false, endAt: 0 }));
+    if (!pandora.running || pandora.remaining > 0) return;
+    playChime(pandora.phase === 'focus' ? 'break' : 'focus');
+    if (pandora.phase === 'focus') {
+      setStats((current) => ({
+        day: todayKey(),
+        sessions: (current.day === todayKey() ? current.sessions : 0) + 1,
+        focusMinutes: (current.day === todayKey() ? current.focusMinutes : 0) + Math.round(pandora.focus / 60),
+      }));
     }
-  }, [pandora, playChime]);
+    setPandora((current) => advancePandora(current, prefs.autoNext));
+  }, [pandora, prefs.autoNext, playChime, setStats, advancePandora]);
 
   useEffect(() => {
     if (stats.day !== todayKey()) {
@@ -486,23 +541,41 @@ export default function App() {
   const todoistFiltered = useMemo(() => {
     const tasks = todoist.tasks;
     const diffOf = (task) => (task.due ? dayDiff(task.due.datetime || task.due.date) : null);
-    if (todoistFilter === 'all') return tasks;
-    if (todoistFilter === 'priority') return tasks.filter((task) => (task.priority || 1) >= 3).sort((a, b) => (b.priority || 1) - (a.priority || 1));
+    const prio = (task) => task.priority || 1;
+    // Tasks without a date sort last rather than counting as "today".
+    const dueKey = (task) => {
+      const diff = diffOf(task);
+      return diff === null ? Number.POSITIVE_INFINITY : diff;
+    };
+    const projName = (id) => todoist.projects.find((project) => project.id === id)?.name || '';
+
+    let list = tasks;
     if (todoistFilter === 'today') {
-      return tasks
-        .filter((task) => {
-          const diff = diffOf(task);
-          return diff !== null && diff <= 0;
-        })
-        .sort((a, b) => diffOf(a) - diffOf(b) || (b.priority || 1) - (a.priority || 1));
-    }
-    return tasks
-      .filter((task) => {
+      list = tasks.filter((task) => {
+        const diff = diffOf(task);
+        return diff !== null && diff <= 0;
+      });
+    } else if (todoistFilter === 'upcoming') {
+      list = tasks.filter((task) => {
         const diff = diffOf(task);
         return diff !== null && diff > 0 && diff <= 7;
-      })
-      .sort((a, b) => diffOf(a) - diffOf(b));
-  }, [todoist.tasks, todoistFilter]);
+      });
+    } else if (todoistFilter === 'priority') {
+      list = tasks.filter((task) => prio(task) >= 3);
+    }
+
+    const sorted = [...list];
+    if (todoistSort === 'priority') {
+      sorted.sort((a, b) => prio(b) - prio(a) || dueKey(a) - dueKey(b));
+    } else if (todoistSort === 'name') {
+      sorted.sort((a, b) => a.content.localeCompare(b.content));
+    } else if (todoistSort === 'project') {
+      sorted.sort((a, b) => projName(a.project_id).localeCompare(projName(b.project_id)) || dueKey(a) - dueKey(b));
+    } else {
+      sorted.sort((a, b) => dueKey(a) - dueKey(b) || prio(b) - prio(a));
+    }
+    return sorted;
+  }, [todoist.tasks, todoist.projects, todoistFilter, todoistSort]);
 
   const completeTodoistTask = useCallback(
     async (task) => {
@@ -523,10 +596,15 @@ export default function App() {
     event.preventDefault();
     const content = todoistDraft.trim();
     if (!content) return;
+    const payload = { content };
+    if (todoistComposer.priority > 1) payload.priority = todoistComposer.priority;
+    if (todoistComposer.projectId) payload.project_id = todoistComposer.projectId;
+    if (todoistComposer.due) payload.due_date = todoistComposer.due;
     try {
-      const created = await todoistFetch('/tasks', { method: 'POST', body: JSON.stringify({ content }) });
+      const created = await todoistFetch('/tasks', { method: 'POST', body: JSON.stringify(payload) });
       if (created && created.id) setTodoist((current) => ({ ...current, tasks: [created, ...current.tasks], error: '' }));
       setTodoistDraft('');
+      setTodoistComposer((current) => ({ ...current, due: '' }));
     } catch (error) {
       setTodoist((current) => ({ ...current, error: error.message }));
     }
@@ -1213,13 +1291,13 @@ export default function App() {
   ]);
 
   const addWidget = useCallback((type) => {
-    const meta = CATALOG_MAP[type];
+    const size = widgetSize(type);
     const rect = viewportRef.current?.getBoundingClientRect();
     const vw = rect?.width ?? 900;
     const vh = rect?.height ?? 640;
     const duplicates = widgets.filter((widget) => widget.type === type).length;
-    const boardX = (vw / 2 - view.x) / view.scale - meta.w / 2 + duplicates * 28;
-    const boardY = (vh / 2 - view.y) / view.scale - meta.h / 2 + duplicates * 28;
+    const boardX = (vw / 2 - view.x) / view.scale - size.w / 2 + duplicates * 28;
+    const boardY = (vh / 2 - view.y) / view.scale - size.h / 2 + duplicates * 28;
     setWidgets((current) => [...current, createWidget(type, { x: boardX, y: boardY })]);
   }, [setWidgets, view, widgets]);
 
@@ -1271,6 +1349,19 @@ export default function App() {
     const scale = view.scale;
     const snap = prefs.snap;
     const step = prefs.gridSize;
+    const guideSnap = prefs.snapGuides;
+    const THRESHOLD = 7 / scale;
+
+    // Alignment targets from every other widget's edges and centers.
+    const others = widgets.filter((item) => item.id !== widgetId && item.visible);
+    const xLines = [];
+    const yLines = [];
+    others.forEach((item) => {
+      xLines.push(item.x, item.x + item.w / 2, item.x + item.w);
+      yLines.push(item.y, item.y + item.h / 2, item.y + item.h);
+    });
+    const edgeXs = (x) => [x, x + widget.w / 2, x + widget.w];
+    const edgeYs = (y) => [y, y + widget.h / 2, y + widget.h];
 
     const move = (moveEvent) => {
       let nextX = originX + (moveEvent.clientX - startX) / scale;
@@ -1279,15 +1370,43 @@ export default function App() {
         nextX = Math.round(nextX / step) * step;
         nextY = Math.round(nextY / step) * step;
       }
+      const nextGuides = [];
+      if (guideSnap) {
+        // Snap this widget's nearest edge/centre to the closest alignment line.
+        const snapAxis = (value, lines, edges) => {
+          let best = null;
+          edges(value).forEach((edge) => {
+            lines.forEach((line) => {
+              const delta = line - edge;
+              if (Math.abs(delta) <= THRESHOLD && (!best || Math.abs(delta) < Math.abs(best.delta))) {
+                best = { delta, line };
+              }
+            });
+          });
+          return best;
+        };
+        const gx = snapAxis(nextX, xLines, edgeXs);
+        if (gx) {
+          nextX += gx.delta;
+          nextGuides.push({ axis: 'x', pos: gx.line });
+        }
+        const gy = snapAxis(nextY, yLines, edgeYs);
+        if (gy) {
+          nextY += gy.delta;
+          nextGuides.push({ axis: 'y', pos: gy.line });
+        }
+      }
+      setGuides(nextGuides);
       updateWidget(widgetId, { x: nextX, y: nextY });
     };
     const up = () => {
+      setGuides([]);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
-  }, [widgets, view.scale, updateWidget, prefs.snap, prefs.gridSize]);
+  }, [widgets, view.scale, updateWidget, prefs.snap, prefs.gridSize, prefs.snapGuides]);
 
   const startResize = useCallback((event, widgetId, corner) => {
     event.stopPropagation();
@@ -1545,12 +1664,15 @@ export default function App() {
         const remaining = current.endAt ? Math.max(0, Math.ceil((current.endAt - Date.now()) / 1000)) : current.remaining;
         return { ...current, running: false, remaining, endAt: 0 };
       }
-      const remaining = current.remaining > 0 ? current.remaining : current.preset;
+      const remaining = current.remaining > 0 ? current.remaining : pandoraLengthFor(current, current.phase);
       return { ...current, running: true, remaining, endAt: Date.now() + remaining * 1000 };
     });
   };
 
-  const resetPandora = () => setPandora((current) => ({ ...current, running: false, endAt: 0, remaining: current.preset }));
+  const resetPandora = () =>
+    setPandora((current) => ({ ...current, running: false, endAt: 0, phase: 'focus', completed: 0, remaining: current.focus }));
+
+  const skipPandora = () => setPandora((current) => advancePandora(current, current.running));
 
   /* --- picker --- */
 
@@ -1804,11 +1926,19 @@ export default function App() {
         setPaletteIndex(0);
       } else if (event.key === 'Escape') {
         setPaletteOpen(false);
+        setFullscreenId(null);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
+
+  // Full-screen a single widget, or the whole board via the browser API.
+  const toggleAppFullscreen = () => {
+    if (typeof document === 'undefined') return;
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else document.documentElement.requestFullscreen?.();
+  };
 
   const renderWelcome = (flow) => (
     <div className={`canvas-welcome ${flow ? 'canvas-welcome--flow' : ''}`}>
@@ -1854,6 +1984,7 @@ export default function App() {
   );
 
   const ThemeIcon = prefs.theme === 'dark' ? SunIcon : MoonIcon;
+  const fullscreenWidget = fullscreenId ? widgets.find((widget) => widget.id === fullscreenId) : null;
 
   // Everything a widget body needs to render, gathered once so
   // `renderWidgetBody` stays a plain function (see src/widgets/renderWidgetBody.jsx).
@@ -1861,7 +1992,7 @@ export default function App() {
     timer, setTimer, toggleTimer, resetTimer, switchTimerMode,
     stats,
     stopwatch, toggleStopwatch, addLap, resetStopwatch,
-    pandora, setPandora, togglePandora, resetPandora,
+    pandora, setPandora, togglePandora, resetPandora, skipPandora,
     now, prefs, updateWidget,
     countdown, setCountdown,
     tasks, doneTasks, setTasks, newTask, setNewTask, addTask,
@@ -1878,6 +2009,7 @@ export default function App() {
     searchWeatherCity, weatherQuery, setWeatherQuery, weatherBusy, useMyLocation, weatherLocation, loadWeather,
     todoistToken, todoistEditing, setTodoistEditing, saveTodoistToken, todoistTokenDraft, setTodoistTokenDraft, setTodoistToken,
     todoist, loadTodoist, todoistFilter, setTodoistFilter, todoistFiltered, projectName, completeTodoistTask, todoistBusy,
+    todoistSort, setTodoistSort, todoistComposer, setTodoistComposer,
     addTodoistTask, todoistDraft, setTodoistDraft,
   };
 
@@ -2041,6 +2173,17 @@ export default function App() {
           >
             <CommandIcon size={16} />
           </button>
+          {!isMobile && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Toggle full screen"
+              title="Full screen"
+              onClick={toggleAppFullscreen}
+            >
+              <ExpandIcon size={16} />
+            </button>
+          )}
           <button
             type="button"
             className="icon-button"
@@ -2070,6 +2213,7 @@ export default function App() {
               onToggleLock={() => toggleLock(widget.id)}
               scaleContent={prefs.scaleContent}
               resizing={resizing && resizing.id === widget.id ? resizing : null}
+              onFullscreen={() => setFullscreenId(widget.id)}
               onMobileResizeStart={(event) => startMobileResize(event, widget.id)}
             >
               {renderWidgetBody(widget, widgetApp)}
@@ -2104,6 +2248,7 @@ export default function App() {
                 onRemove={() => removeWidget(widget.id)}
                 onDuplicate={() => duplicateWidget(widget.id)}
                 onToggleLock={() => toggleLock(widget.id)}
+                onFullscreen={() => setFullscreenId(widget.id)}
                 onDragStart={(event) => startDrag(event, widget.id)}
                 onResizeStart={(event, corner) => startResize(event, widget.id, corner)}
               >
@@ -2131,6 +2276,22 @@ export default function App() {
               })}
             </svg>
           </div>
+
+          {guides.map((guide, index) =>
+            guide.axis === 'x' ? (
+              <span
+                key={`x-${index}`}
+                className="align-guide align-guide--x"
+                style={{ left: guide.pos * view.scale + view.x }}
+              />
+            ) : (
+              <span
+                key={`y-${index}`}
+                className="align-guide align-guide--y"
+                style={{ top: guide.pos * view.scale + view.y }}
+              />
+            ),
+          )}
 
           {editingText &&
             (() => {
@@ -2531,6 +2692,15 @@ export default function App() {
         </label>
 
         <label className="toggle-row">
+          <span>Alignment guides</span>
+          <input
+            type="checkbox"
+            checked={prefs.snapGuides}
+            onChange={(event) => setSettings((current) => ({ ...current, snapGuides: event.target.checked }))}
+          />
+        </label>
+
+        <label className="toggle-row">
           <span>Scale widget contents</span>
           <input
             type="checkbox"
@@ -2757,6 +2927,26 @@ export default function App() {
                 );
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {fullscreenWidget && (
+        <div
+          className="fullscreen-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${fullscreenWidget.title} full screen`}
+          onClick={() => setFullscreenId(null)}
+        >
+          <div className="fullscreen-panel" onClick={(event) => event.stopPropagation()}>
+            <header className="fullscreen-header">
+              <span className="fullscreen-title">{fullscreenWidget.title}</span>
+              <button type="button" className="icon-button" onClick={() => setFullscreenId(null)} aria-label="Exit full screen">
+                <MinimizeIcon size={16} />
+              </button>
+            </header>
+            <div className="fullscreen-body">{renderWidgetBody(fullscreenWidget, widgetApp)}</div>
           </div>
         </div>
       )}

@@ -35,7 +35,6 @@ export const defaultSettings = {
   snapGuides: true,
   scaleContent: true,
   zoomHud: true,
-  fullscreenWidget: null,
   hiddenPalette: [],
   barOpen: true,
   chime: true,

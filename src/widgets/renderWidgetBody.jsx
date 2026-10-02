@@ -43,7 +43,7 @@ export default function renderWidgetBody(widget, app) {
     timer, setTimer, toggleTimer, resetTimer, switchTimerMode,
     stats,
     stopwatch, toggleStopwatch, addLap, resetStopwatch,
-    pandora, setPandora, togglePandora, resetPandora,
+    pandora, setPandora, togglePandora, resetPandora, skipPandora,
     now, prefs, updateWidget,
     countdown, setCountdown,
     tasks, doneTasks, setTasks, newTask, setNewTask, addTask,
@@ -60,6 +60,7 @@ export default function renderWidgetBody(widget, app) {
     searchWeatherCity, weatherQuery, setWeatherQuery, weatherBusy, useMyLocation, weatherLocation, loadWeather,
     todoistToken, todoistEditing, setTodoistEditing, saveTodoistToken, todoistTokenDraft, setTodoistTokenDraft, setTodoistToken,
     todoist, loadTodoist, todoistFilter, setTodoistFilter, todoistFiltered, projectName, completeTodoistTask, todoistBusy,
+    todoistSort, setTodoistSort, todoistComposer, setTodoistComposer,
     addTodoistTask, todoistDraft, setTodoistDraft,
   } = app;
 
@@ -138,30 +139,97 @@ export default function renderWidgetBody(widget, app) {
     }
 
     case 'pandora': {
-      const intervalPct = Math.min(100, Math.max(0, ((pandora.preset - pandora.remaining) / (pandora.preset || 1)) * 100));
+      // Interval ("Pandora") timer: focus and break phases alternate, with a
+      // long break after every `rounds` completed focus sessions.
+      const onBreak = pandora.phase === 'break';
+      const longNext = pandora.rounds > 0 && pandora.completed > 0 && pandora.completed % pandora.rounds === 0;
+      const phaseLen = onBreak ? (longNext ? pandora.longBreak : pandora.breakLen) : pandora.focus;
+      const intervalPct = Math.min(100, Math.max(0, ((phaseLen - pandora.remaining) / (phaseLen || 1)) * 100));
+      const roundNow = pandora.completed === 0 ? 0 : pandora.completed % pandora.rounds || pandora.rounds;
       return (
         <div className="widget-body">
+          <div className={`timer-mode ${onBreak ? 'break' : 'focus'}`}>
+            {onBreak ? (longNext ? 'Long break' : 'Break') : 'Focus'}
+            {` · round ${roundNow}/${pandora.rounds}`}
+          </div>
           <div className="big-number">{formatClock(pandora.remaining)}</div>
           <div className="progress-track timer-track">
             <span style={{ width: `${intervalPct}%` }} />
           </div>
           <div className="chip-row">
-            {[10, 20, 50].map((minutes) => (
+            {[15, 20, 25, 30, 45].map((minutes) => (
               <button
                 key={minutes}
                 type="button"
-                className={`chip ${pandora.preset === minutes * 60 ? 'active' : ''}`}
-                onClick={() => setPandora({ running: false, remaining: minutes * 60, preset: minutes * 60, endAt: 0 })}
+                className={`chip ${pandora.focus === minutes * 60 ? 'active' : ''}`}
+                onClick={() =>
+                  setPandora((current) => ({
+                    ...current,
+                    running: false,
+                    endAt: 0,
+                    phase: 'focus',
+                    completed: 0,
+                    focus: minutes * 60,
+                    remaining: minutes * 60,
+                  }))
+                }
               >
                 {minutes}m
               </button>
             ))}
           </div>
+          <div className="field-grid pandora-config">
+            <label>
+              Break
+              <select
+                value={pandora.breakLen}
+                onChange={(event) => setPandora((current) => ({ ...current, breakLen: Number(event.target.value) }))}
+              >
+                {[3, 5, 8, 10].map((minutes) => (
+                  <option key={minutes} value={minutes * 60}>
+                    {minutes}m
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Long break
+              <select
+                value={pandora.longBreak}
+                onChange={(event) => setPandora((current) => ({ ...current, longBreak: Number(event.target.value) }))}
+              >
+                {[10, 15, 20, 30].map((minutes) => (
+                  <option key={minutes} value={minutes * 60}>
+                    {minutes}m
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Rounds
+              <select
+                value={pandora.rounds}
+                onChange={(event) => setPandora((current) => ({ ...current, rounds: Number(event.target.value) }))}
+              >
+                {[2, 3, 4, 5, 6].map((count) => (
+                  <option key={count} value={count}>
+                    {count}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div className="action-row">
             <button type="button" className="primary" onClick={togglePandora}>
               {pandora.running ? 'Pause' : 'Start'}
             </button>
+            <button type="button" onClick={skipPandora}>
+              {onBreak ? 'Skip break' : 'Skip to break'}
+            </button>
             <button type="button" onClick={resetPandora}>Reset</button>
+          </div>
+          <div className="micro-copy">
+            {pandora.completed} focus session{pandora.completed === 1 ? '' : 's'} completed · long break every {pandora.rounds}
           </div>
         </div>
       );
@@ -924,14 +992,26 @@ export default function renderWidgetBody(widget, app) {
       }
 
       const loading = todoist.status === 'loading';
+      const projects = todoist.projects || [];
       return (
         <div className="widget-body todoist-body">
           <div className="todoist-head">
             <div className="todoist-counts">
-              <strong>{todoist.tasks.length}</strong>
-              <span>open {todoist.tasks.length === 1 ? 'task' : 'tasks'}</span>
+              <strong>{todoistFiltered.length}</strong>
+              <span>of {todoist.tasks.length} open</span>
             </div>
             <div className="todoist-head-actions">
+              <select
+                className="todoist-sort"
+                value={todoistSort}
+                onChange={(event) => setTodoistSort(event.target.value)}
+                aria-label="Sort tasks"
+              >
+                <option value="due">Due date</option>
+                <option value="priority">Priority</option>
+                <option value="name">Name</option>
+                <option value="project">Project</option>
+              </select>
               <button
                 type="button"
                 className="icon-btn"
@@ -952,7 +1032,7 @@ export default function renderWidgetBody(widget, app) {
               { key: 'today', label: 'Today' },
               { key: 'upcoming', label: 'Upcoming' },
               { key: 'priority', label: 'Priority' },
-              { key: 'all', label: 'All' },
+              { key: 'all', label: 'Everything' },
             ].map((item) => (
               <button
                 key={item.key}
@@ -970,7 +1050,11 @@ export default function renderWidgetBody(widget, app) {
             {todoist.status === 'error' && <div className="todoist-error">{todoist.error}</div>}
             {!loading && todoist.status !== 'error' && todoistFiltered.length === 0 && (
               <div className="hint">
-                {todoistFilter === 'today' ? 'Nothing due today — clear skies.' : 'No tasks in this view.'}
+                {todoistFilter === 'today'
+                  ? 'Nothing due today — clear skies.'
+                  : todoistFilter === 'all'
+                    ? 'No open tasks. Add one below.'
+                    : 'No tasks in this view.'}
               </div>
             )}
             {todoistFiltered.map((task) => {
@@ -1006,17 +1090,49 @@ export default function renderWidgetBody(widget, app) {
             })}
           </div>
 
-          <form className="inline-form" onSubmit={addTodoistTask}>
-            <input
-              type="text"
-              value={todoistDraft}
-              onChange={(event) => setTodoistDraft(event.target.value)}
-              placeholder="Add a task…"
-              aria-label="New Todoist task"
-            />
-            <button type="submit" className="primary" disabled={!todoistDraft.trim()}>
-              <PlusIcon size={15} />
-            </button>
+          <form className="todoist-composer" onSubmit={addTodoistTask}>
+            <div className="todoist-composer-main">
+              <input
+                type="text"
+                value={todoistDraft}
+                onChange={(event) => setTodoistDraft(event.target.value)}
+                placeholder="Add a task…"
+                aria-label="New Todoist task"
+              />
+              <button type="submit" className="primary" disabled={!todoistDraft.trim()}>
+                <PlusIcon size={15} />
+              </button>
+            </div>
+            <div className="todoist-composer-options">
+              <select
+                value={todoistComposer.projectId}
+                onChange={(event) => setTodoistComposer((current) => ({ ...current, projectId: event.target.value }))}
+                aria-label="Task category"
+              >
+                <option value="">Inbox</option>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={todoistComposer.priority}
+                onChange={(event) => setTodoistComposer((current) => ({ ...current, priority: Number(event.target.value) }))}
+                aria-label="Task priority"
+              >
+                <option value={1}>Priority 4</option>
+                <option value={2}>Priority 3</option>
+                <option value={3}>Priority 2</option>
+                <option value={4}>Priority 1 · urgent</option>
+              </select>
+              <input
+                type="date"
+                value={todoistComposer.due}
+                onChange={(event) => setTodoistComposer((current) => ({ ...current, due: event.target.value }))}
+                aria-label="Task due date"
+              />
+            </div>
           </form>
         </div>
       );
