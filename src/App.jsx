@@ -8,6 +8,7 @@ import {
   ClockIcon,
   ChartIcon,
   CheckSquareIcon,
+  CloudIcon,
   CommandIcon,
   CopyIcon,
   DiceIcon,
@@ -23,13 +24,16 @@ import {
   NoteIcon,
   PlusIcon,
   QuoteIcon,
+  RainIcon,
   RefreshIcon,
   RepeatIcon,
   ResetIcon,
   SlidersIcon,
+  SnowIcon,
   SproutIcon,
   StickyIcon,
   StopwatchIcon,
+  StormIcon,
   SunIcon,
   TimerIcon,
   TodoistIcon,
@@ -54,6 +58,7 @@ const KEYS = {
   sound: 'focus-canvas-sound-v3',
   stats: 'focus-canvas-stats-v3',
   todoist: 'focus-canvas-todoist-v3',
+  weather: 'focus-canvas-weather-v3',
 };
 
 const MIN_ZOOM = 0.15;
@@ -158,6 +163,7 @@ const WIDGET_CATALOG = [
   { key: 'flashcards', label: 'Flashcards', icon: FlashcardIcon, w: 300, h: 250 },
   { key: 'picker', label: 'Picker', icon: DiceIcon, w: 260, h: 220 },
   { key: 'breath', label: 'Breathe', icon: BreathIcon, w: 240, h: 270 },
+  { key: 'weather', label: 'Weather', icon: CloudIcon, w: 300, h: 290 },
   { key: 'todoist', label: 'Todoist', icon: TodoistIcon, w: 340, h: 320 },
 ];
 
@@ -177,8 +183,9 @@ const createWidget = (type, overrides = {}) => {
     w: meta ? meta.w : 260,
     h: meta ? meta.h : 200,
     ...(type === 'sticky' ? { text: '', color: STICKY_COLORS[0] } : {}),
-    ...(type === 'flashcards' ? { deck: '', cardIndex: 0, flipped: false, editing: false } : {}),
+    ...(type === 'flashcards' ? { deck: '', cardIndex: 0, flipped: false, editing: false, order: [] } : {}),
     ...(type === 'picker' ? { names: '', editing: false } : {}),
+    ...(type === 'clock' ? { clock24: false } : {}),
     ...overrides,
   };
 };
@@ -211,7 +218,7 @@ const TEMPLATES = [
     label: 'Morning Routine',
     blurb: 'Start the day on purpose',
     icon: DropletIcon,
-    items: [['water', 0, 0], ['habits', 290, 0], ['quote', 0, 255], ['clock', 400, 290]],
+    items: [['water', 0, 0], ['habits', 290, 0], ['weather', 400, 0], ['quote', 0, 255], ['clock', 400, 300]],
   },
   {
     key: 'lesson',
@@ -321,6 +328,50 @@ const dueLabel = (due) => {
 };
 
 /* ------------------------------------------------------------------ */
+/*  Weather helpers (Open-Meteo — keyless, browser friendly)          */
+/* ------------------------------------------------------------------ */
+
+const WEATHER_CODES = {
+  0: { label: 'Clear sky', icon: 'sun' },
+  1: { label: 'Mainly clear', icon: 'sun' },
+  2: { label: 'Partly cloudy', icon: 'cloud' },
+  3: { label: 'Overcast', icon: 'cloud' },
+  45: { label: 'Fog', icon: 'cloud' },
+  48: { label: 'Rime fog', icon: 'cloud' },
+  51: { label: 'Light drizzle', icon: 'rain' },
+  53: { label: 'Drizzle', icon: 'rain' },
+  55: { label: 'Heavy drizzle', icon: 'rain' },
+  56: { label: 'Freezing drizzle', icon: 'rain' },
+  57: { label: 'Freezing drizzle', icon: 'rain' },
+  61: { label: 'Light rain', icon: 'rain' },
+  63: { label: 'Rain', icon: 'rain' },
+  65: { label: 'Heavy rain', icon: 'rain' },
+  66: { label: 'Freezing rain', icon: 'rain' },
+  67: { label: 'Freezing rain', icon: 'rain' },
+  71: { label: 'Light snow', icon: 'snow' },
+  73: { label: 'Snow', icon: 'snow' },
+  75: { label: 'Heavy snow', icon: 'snow' },
+  77: { label: 'Snow grains', icon: 'snow' },
+  80: { label: 'Rain showers', icon: 'rain' },
+  81: { label: 'Rain showers', icon: 'rain' },
+  82: { label: 'Violent showers', icon: 'rain' },
+  85: { label: 'Snow showers', icon: 'snow' },
+  86: { label: 'Snow showers', icon: 'snow' },
+  95: { label: 'Thunderstorm', icon: 'storm' },
+  96: { label: 'Thunderstorm', icon: 'storm' },
+  99: { label: 'Thunderstorm', icon: 'storm' },
+};
+
+const weatherInfo = (code) => WEATHER_CODES[code] || { label: 'Current', icon: 'cloud' };
+
+const WEATHER_ICONS = { sun: SunIcon, cloud: CloudIcon, rain: RainIcon, snow: SnowIcon, storm: StormIcon };
+
+const addDays = (dateStr, days) => {
+  const base = dateStr ? new Date(`${String(dateStr).slice(0, 10)}T00:00:00`) : new Date();
+  return new Date(base.getTime() + days * 86400000).toISOString().slice(0, 10);
+};
+
+/* ------------------------------------------------------------------ */
 /*  Widget card                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -391,9 +442,32 @@ function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, 
       : undefined
     : { left: `${widget.x}px`, top: `${widget.y}px`, width: `${widget.w}px`, height: `${widget.h}px`, '--ws': `${ws}` };
 
+  // Post-it notes skip the header entirely and look like real paper.
+  const isSticky = widget.type === 'sticky';
+
+  const actionButtons = (
+    <>
+      <button
+        type="button"
+        className={widget.locked ? 'active' : ''}
+        onClick={onToggleLock}
+        aria-label={`${widget.locked ? 'Unlock' : 'Lock'} ${widget.title}`}
+      >
+        {widget.locked ? <LockIcon size={14} /> : <UnlockIcon size={14} />}
+      </button>
+      <button type="button" onClick={onDuplicate} aria-label={`Duplicate ${widget.title}`}>
+        <CopyIcon size={14} />
+      </button>
+      <button type="button" onClick={onRemove} aria-label={`Remove ${widget.title}`}>
+        <XIcon size={14} />
+      </button>
+    </>
+  );
+
   return (
     <section
-      className={`widget ${mobile ? 'widget--flow' : ''} ${focused ? 'is-focused' : ''} ${widget.locked ? 'is-locked' : ''}`}
+      className={`widget ${mobile ? 'widget--flow' : ''} ${isSticky ? 'widget--sticky' : ''} ${focused ? 'is-focused' : ''} ${widget.locked ? 'is-locked' : ''}`}
+      data-type={widget.type}
       id={`widget-${widget.id}`}
       style={cardStyle}
       onMouseDown={onFocus}
@@ -410,31 +484,25 @@ function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, 
           {meta ? meta.label : widget.title}
         </button>
       )}
-      <header className={`widget-header ${mobile ? 'static' : ''}`}>
-        <span className="widget-title">
-          <Icon size={15} />
-          {widget.title}
-        </span>
-        <div className="widget-actions" onPointerDown={(event) => event.stopPropagation()}>
-          <button
-            type="button"
-            className={widget.locked ? 'active' : ''}
-            onClick={onToggleLock}
-            aria-label={`${widget.locked ? 'Unlock' : 'Lock'} ${widget.title}`}
-          >
-            {widget.locked ? <LockIcon size={14} /> : <UnlockIcon size={14} />}
-          </button>
-          <button type="button" onClick={onDuplicate} aria-label={`Duplicate ${widget.title}`}>
-            <CopyIcon size={14} />
-          </button>
-          <button type="button" onClick={onRemove} aria-label={`Remove ${widget.title}`}>
-            <XIcon size={14} />
-          </button>
-        </div>
-      </header>
+      {!isSticky && (
+        <header className={`widget-header ${mobile ? 'static' : ''}`}>
+          <span className="widget-title">
+            <Icon size={15} />
+            {widget.title}
+          </span>
+          <div className="widget-actions" onPointerDown={(event) => event.stopPropagation()}>
+            {actionButtons}
+          </div>
+        </header>
+      )}
       <div className="widget-content">
         <div className="widget-scale">{children}</div>
       </div>
+      {isSticky && (
+        <div className="widget-actions widget-actions--float" onPointerDown={(event) => event.stopPropagation()}>
+          {actionButtons}
+        </div>
+      )}
       {!mobile &&
         !widget.locked &&
         CORNERS.map((corner) => (
@@ -486,13 +554,20 @@ export default function App() {
   const [todoistEditing, setTodoistEditing] = useState(false);
   const [todoistBusy, setTodoistBusy] = useState(null);
 
+  const [weatherLocation, setWeatherLocation] = useLocalStorageState(KEYS.weather, { place: '', latitude: null, longitude: null });
+  const [weather, setWeather] = useState({ status: 'idle', data: null, error: '' });
+  const [weatherQuery, setWeatherQuery] = useState('');
+  const [weatherEditing, setWeatherEditing] = useState(false);
+  const [weatherBusy, setWeatherBusy] = useState(false);
+
   const [newTask, setNewTask] = useState('');
   const [newHabit, setNewHabit] = useState('');
   const [linkDraft, setLinkDraft] = useState({ label: '', url: '' });
   const [quoteIndex, setQuoteIndex] = useState(() => Math.floor(Math.random() * QUOTES.length));
+  const [quoteCopied, setQuoteCopied] = useState(false);
 
   const [timer, setTimer] = useState({ running: false, remaining: 25 * 60, preset: 25 * 60, mode: 'focus', endAt: 0 });
-  const [stopwatch, setStopwatch] = useState({ running: false, elapsed: 0, startedAt: 0, base: 0 });
+  const [stopwatch, setStopwatch] = useState({ running: false, elapsed: 0, startedAt: 0, base: 0, laps: [] });
   const [pandora, setPandora] = useState({ running: false, remaining: 20 * 60, preset: 20 * 60, endAt: 0 });
   const [breath, setBreath] = useState({ running: false, startedAt: 0 });
   const [pickerState, setPickerState] = useState({});
@@ -809,6 +884,95 @@ export default function App() {
   const projectName = (id) => todoist.projects.find((project) => project.id === id)?.name || '';
 
   /* ------------------------------------------------------------------ */
+  /*  Weather (Open-Meteo)                                              */
+  /* ------------------------------------------------------------------ */
+
+  const hasWeatherLocation = weatherLocation.latitude != null && weatherLocation.longitude != null;
+
+  const loadWeather = useCallback(async () => {
+    if (weatherLocation.latitude == null || weatherLocation.longitude == null) {
+      setWeather({ status: 'idle', data: null, error: '' });
+      return;
+    }
+    setWeather((current) => ({ ...current, status: 'loading', error: '' }));
+    try {
+      const url =
+        `https://api.open-meteo.com/v1/forecast?latitude=${weatherLocation.latitude}&longitude=${weatherLocation.longitude}` +
+        '&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m' +
+        '&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=4';
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Forecast service is unavailable right now.');
+      const data = await response.json();
+      setWeather({ status: 'ready', data, error: '' });
+    } catch (error) {
+      const message =
+        error instanceof TypeError ? 'Network error — check your connection.' : error.message || 'Could not load the forecast.';
+      setWeather((current) => ({ ...current, status: 'error', error: message }));
+    }
+  }, [weatherLocation.latitude, weatherLocation.longitude]);
+
+  useEffect(() => {
+    loadWeather();
+  }, [loadWeather]);
+
+  const searchWeatherCity = async (event) => {
+    event.preventDefault();
+    const query = weatherQuery.trim();
+    if (!query) return;
+    setWeatherBusy(true);
+    setWeather((current) => ({ ...current, error: '' }));
+    try {
+      const response = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=en&format=json`,
+      );
+      if (!response.ok) throw new Error('City lookup failed.');
+      const data = await response.json();
+      const match = data?.results?.[0];
+      if (!match) {
+        setWeather((current) => ({ ...current, error: 'No city found with that name.' }));
+        return;
+      }
+      setWeatherLocation({
+        place: [match.name, match.country_code].filter(Boolean).join(', '),
+        latitude: match.latitude,
+        longitude: match.longitude,
+      });
+      setWeatherQuery('');
+      setWeatherEditing(false);
+    } catch (error) {
+      const message =
+        error instanceof TypeError ? 'Network error — check your connection.' : error.message || 'City lookup failed.';
+      setWeather((current) => ({ ...current, error: message }));
+    } finally {
+      setWeatherBusy(false);
+    }
+  };
+
+  const useMyLocation = () => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setWeather((current) => ({ ...current, error: 'Location is not available in this browser.' }));
+      return;
+    }
+    setWeatherBusy(true);
+    setWeather((current) => ({ ...current, error: '' }));
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setWeatherLocation({
+          place: 'My location',
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+        setWeatherBusy(false);
+        setWeatherEditing(false);
+      },
+      () => {
+        setWeather((current) => ({ ...current, error: 'Could not read your location.' }));
+        setWeatherBusy(false);
+      },
+    );
+  };
+
+  /* ------------------------------------------------------------------ */
   /*  Zoom & pan                                                        */
   /* ------------------------------------------------------------------ */
 
@@ -933,6 +1097,45 @@ export default function App() {
   /* ------------------------------------------------------------------ */
 
   const visibleWidgets = useMemo(() => widgets.filter((widget) => widget.visible), [widgets]);
+
+  // Small live read-outs shown in the top bar for anything currently running.
+  const liveWidgets = useMemo(() => {
+    const items = [];
+    const find = (type) => visibleWidgets.find((widget) => widget.type === type);
+    const timerWidget = find('timer');
+    if (timerWidget && timer.running) {
+      items.push({ id: timerWidget.id, label: timerWidget.title, icon: TimerIcon, value: formatClock(timer.remaining) });
+    }
+    const stopwatchWidget = find('stopwatch');
+    if (stopwatchWidget && stopwatch.running) {
+      items.push({ id: stopwatchWidget.id, label: stopwatchWidget.title, icon: StopwatchIcon, value: formatStopwatch(stopwatch.elapsed) });
+    }
+    const intervalWidget = find('pandora');
+    if (intervalWidget && pandora.running) {
+      items.push({ id: intervalWidget.id, label: intervalWidget.title, icon: RepeatIcon, value: formatClock(pandora.remaining) });
+    }
+    const breathWidget = find('breath');
+    if (breathWidget && breath.running) {
+      items.push({ id: breathWidget.id, label: breathWidget.title, icon: BreathIcon, value: breathPhase(now - breath.startedAt) });
+    }
+    const soundWidget = find('sound');
+    if (soundWidget && soundPlaying) {
+      items.push({ id: soundWidget.id, label: soundWidget.title, icon: HeadphonesIcon, value: 'Ambience' });
+    }
+    return items;
+  }, [
+    visibleWidgets,
+    timer.running,
+    timer.remaining,
+    stopwatch.running,
+    stopwatch.elapsed,
+    pandora.running,
+    pandora.remaining,
+    breath.running,
+    breath.startedAt,
+    soundPlaying,
+    now,
+  ]);
 
   const addWidget = useCallback((type) => {
     const meta = CATALOG_MAP[type];
@@ -1154,13 +1357,19 @@ export default function App() {
         const elapsed = current.startedAt
           ? Math.floor((Date.now() - current.startedAt) / 1000) + current.base
           : current.elapsed;
-        return { running: false, elapsed, startedAt: 0, base: 0 };
+        return { ...current, running: false, elapsed, startedAt: 0, base: 0 };
       }
-      return { running: true, elapsed: current.elapsed, startedAt: Date.now(), base: current.elapsed };
+      return { ...current, running: true, elapsed: current.elapsed, startedAt: Date.now(), base: current.elapsed };
     });
   };
 
-  const resetStopwatch = () => setStopwatch({ running: false, elapsed: 0, startedAt: 0, base: 0 });
+  const resetStopwatch = () => setStopwatch({ running: false, elapsed: 0, startedAt: 0, base: 0, laps: [] });
+
+  const addLap = () =>
+    setStopwatch((current) => {
+      if (!current.running || current.elapsed === 0) return current;
+      return { ...current, laps: [current.elapsed, ...(current.laps || [])].slice(0, 8) };
+    });
 
   const togglePandora = () => {
     setPandora((current) => {
@@ -1198,6 +1407,27 @@ export default function App() {
 
   const resetPicker = (widget) =>
     setPickerState((current) => ({ ...current, [widget.id]: { used: [], current: '' } }));
+
+  /* --- quote & flashcards --- */
+
+  const copyQuote = async (quote) => {
+    try {
+      await navigator.clipboard.writeText(`“${quote.text}” — ${quote.author}`);
+      setQuoteCopied(true);
+      setTimeout(() => setQuoteCopied(false), 1600);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+
+  const shuffleDeck = (widget, count) => {
+    const order = Array.from({ length: count }, (_, index) => index);
+    for (let i = order.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    updateWidget(widget.id, { order, cardIndex: 0, flipped: false });
+  };
 
   /* --- templates & navigation --- */
 
@@ -1336,6 +1566,8 @@ export default function App() {
     switch (widget.type) {
       case 'timer': {
         const onBreak = timer.mode === 'break';
+        const total = (onBreak ? BREAK_SECONDS : timer.preset) || 1;
+        const elapsedPct = Math.min(100, Math.max(0, ((total - timer.remaining) / total) * 100));
         return (
           <div className="widget-body">
             <div className={`timer-mode ${onBreak ? 'break' : 'focus'}`}>
@@ -1343,6 +1575,9 @@ export default function App() {
               {prefs.autoNext ? ' · auto' : ''}
             </div>
             <div className="big-number">{formatClock(timer.remaining)}</div>
+            <div className="progress-track timer-track">
+              <span style={{ width: `${elapsedPct}%` }} />
+            </div>
             <div className="chip-row">
               {[15, 25, 45, 60].map((minutes) => (
                 <button
@@ -1366,11 +1601,15 @@ export default function App() {
                 {onBreak ? 'Focus' : 'Break'}
               </button>
             </div>
+            <div className="micro-copy">
+              {stats.sessions} session{stats.sessions === 1 ? '' : 's'} · {stats.focusMinutes}m focused today
+            </div>
           </div>
         );
       }
 
-      case 'stopwatch':
+      case 'stopwatch': {
+        const laps = stopwatch.laps || [];
         return (
           <div className="widget-body">
             <div className="big-number">{formatStopwatch(stopwatch.elapsed)}</div>
@@ -1378,15 +1617,34 @@ export default function App() {
               <button type="button" className="primary" onClick={toggleStopwatch}>
                 {stopwatch.running ? 'Pause' : 'Start'}
               </button>
+              <button type="button" onClick={addLap} disabled={!stopwatch.running || stopwatch.elapsed === 0}>
+                Lap
+              </button>
               <button type="button" onClick={resetStopwatch}>Reset</button>
             </div>
+            {laps.length > 0 && (
+              <div className="lap-list scrollable">
+                {laps.map((lap, index) => (
+                  <div className="lap-row" key={`${lap}-${index}`}>
+                    <span>Lap {laps.length - index}</span>
+                    <strong>{formatStopwatch(lap - (laps[index + 1] ?? 0))}</strong>
+                    <span className="lap-total">{formatStopwatch(lap)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         );
+      }
 
-      case 'pandora':
+      case 'pandora': {
+        const intervalPct = Math.min(100, Math.max(0, ((pandora.preset - pandora.remaining) / (pandora.preset || 1)) * 100));
         return (
           <div className="widget-body">
             <div className="big-number">{formatClock(pandora.remaining)}</div>
+            <div className="progress-track timer-track">
+              <span style={{ width: `${intervalPct}%` }} />
+            </div>
             <div className="chip-row">
               {[10, 20, 50].map((minutes) => (
                 <button
@@ -1407,17 +1665,27 @@ export default function App() {
             </div>
           </div>
         );
+      }
 
       case 'clock': {
         const date = new Date(now);
         return (
           <div className="widget-body clock-body">
             <div className="clock-time">
-              {date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: !widget.clock24 })}
               <span className="clock-seconds">:{String(date.getSeconds()).padStart(2, '0')}</span>
             </div>
             <div className="clock-date">{date.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
             <div className="clock-greeting">{greeting(date.getHours())}</div>
+            <div className="clock-foot">
+              <button
+                type="button"
+                className="chip"
+                onClick={() => updateWidget(widget.id, { clock24: !widget.clock24 })}
+              >
+                {widget.clock24 ? '24-hour' : '12-hour'}
+              </button>
+            </div>
           </div>
         );
       }
@@ -1459,6 +1727,14 @@ export default function App() {
                 />
               </label>
             </div>
+            <div className="action-row">
+              <button type="button" onClick={() => setCountdown((current) => ({ ...current, target: addDays(current.target, 7) }))}>
+                +1 week
+              </button>
+              <button type="button" onClick={() => setCountdown((current) => ({ ...current, target: addDays(current.target, 30) }))}>
+                +1 month
+              </button>
+            </div>
           </div>
         );
       }
@@ -1499,6 +1775,18 @@ export default function App() {
                 </div>
               ))}
             </div>
+            {doneTasks > 0 && (
+              <div className="task-foot">
+                <span className="micro-copy">{doneTasks} done</span>
+                <button
+                  type="button"
+                  className="text-btn"
+                  onClick={() => setTasks((current) => current.filter((task) => !task.done))}
+                >
+                  Clear done
+                </button>
+              </div>
+            )}
             <form className="inline-form" onSubmit={addTask}>
               <input
                 type="text"
@@ -1514,9 +1802,16 @@ export default function App() {
           </div>
         );
 
-      case 'habits':
+      case 'habits': {
+        const todayIndex = (new Date().getDay() + 6) % 7;
+        const habitsToday = habits.filter((habit) => habit.days[todayIndex]).length;
         return (
           <div className="widget-body">
+            <div className="habit-summary">
+              <span>
+                <strong>{habitsToday}</strong>/{habits.length} today
+              </span>
+            </div>
             <div className="habit-head">
               <span />
               {DAY_LABELS.map((label, index) => (
@@ -1562,16 +1857,29 @@ export default function App() {
             </form>
           </div>
         );
+      }
 
-      case 'notes':
+      case 'notes': {
+        const wordCount = notesText.trim() ? notesText.trim().split(/\s+/).length : 0;
         return (
-          <textarea
-            className="notes-area"
-            value={notesText}
-            onChange={(event) => setNotesText(event.target.value)}
-            placeholder="Write something…"
-          />
+          <div className="notes-wrap">
+            <textarea
+              className="notes-area"
+              value={notesText}
+              onChange={(event) => setNotesText(event.target.value)}
+              placeholder="Write something…"
+            />
+            <div className="notes-foot">
+              <span>
+                {wordCount} word{wordCount === 1 ? '' : 's'}
+              </span>
+              <button type="button" className="text-btn" onClick={() => setNotesText('')} disabled={!notesText}>
+                Clear
+              </button>
+            </div>
+          </div>
         );
+      }
 
       case 'water': {
         const pct = Math.min(100, Math.round((water.glasses / Math.max(1, water.goal)) * 100));
@@ -1608,6 +1916,14 @@ export default function App() {
               >
                 Goal {water.goal}
               </button>
+              <button
+                type="button"
+                onClick={() => setWater((current) => ({ ...current, glasses: 0 }))}
+                disabled={water.glasses === 0}
+                aria-label="Reset glasses"
+              >
+                <ResetIcon size={14} />
+              </button>
             </div>
           </div>
         );
@@ -1620,13 +1936,18 @@ export default function App() {
             <QuoteIcon size={20} className="quote-glyph" />
             <p className="quote-text">{quote.text}</p>
             <p className="quote-author">— {quote.author}</p>
-            <button
-              type="button"
-              className="text-btn"
-              onClick={() => setQuoteIndex((current) => (current + 1 + Math.floor(Math.random() * (QUOTES.length - 1))) % QUOTES.length)}
-            >
-              New quote
-            </button>
+            <div className="quote-actions">
+              <button
+                type="button"
+                className="text-btn"
+                onClick={() => setQuoteIndex((current) => (current + 1 + Math.floor(Math.random() * (QUOTES.length - 1))) % QUOTES.length)}
+              >
+                New quote
+              </button>
+              <button type="button" className="text-btn" onClick={() => copyQuote(quote)}>
+                {quoteCopied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
           </div>
         );
       }
@@ -1743,6 +2064,7 @@ export default function App() {
       case 'sticky':
         return (
           <div className="sticky" style={{ background: widget.color || STICKY_COLORS[0] }}>
+            <span className="sticky-tape" aria-hidden="true" />
             <textarea
               className="sticky-text"
               value={widget.text || ''}
@@ -1774,8 +2096,9 @@ export default function App() {
             const [front, ...rest] = line.split('|');
             return { front: (front || '').trim(), back: rest.join('|').trim() };
           });
+        const order = widget.order && widget.order.length === cards.length ? widget.order : cards.map((_, position) => position);
         const index = Math.min(widget.cardIndex || 0, Math.max(0, cards.length - 1));
-        const card = cards[index];
+        const card = cards[order[index]];
 
         if (widget.editing) {
           return (
@@ -1784,7 +2107,7 @@ export default function App() {
               <textarea
                 className="deck-editor scrollable"
                 value={widget.deck || ''}
-                onChange={(event) => updateWidget(widget.id, { deck: event.target.value })}
+                onChange={(event) => updateWidget(widget.id, { deck: event.target.value, order: [] })}
                 placeholder={'Photosynthesis | How plants make food\n2 + 2 | 4'}
                 aria-label="Flashcard deck"
               />
@@ -1792,7 +2115,7 @@ export default function App() {
                 <button
                   type="button"
                   className="primary"
-                  onClick={() => updateWidget(widget.id, { editing: false, cardIndex: 0, flipped: false })}
+                  onClick={() => updateWidget(widget.id, { editing: false, cardIndex: 0, flipped: false, order: [] })}
                 >
                   Done
                 </button>
@@ -1844,6 +2167,9 @@ export default function App() {
                 onClick={() => updateWidget(widget.id, { cardIndex: (index + 1) % cards.length, flipped: false })}
               >
                 <ChevronRightIcon size={15} />
+              </button>
+              <button type="button" className="text-btn" onClick={() => shuffleDeck(widget, cards.length)}>
+                Shuffle
               </button>
               <button type="button" className="text-btn" onClick={() => updateWidget(widget.id, { editing: true })}>
                 Edit deck
@@ -1901,13 +2227,16 @@ export default function App() {
         );
       }
 
-      case 'breath':
+      case 'breath': {
+        const cycles = breath.running && breath.startedAt ? Math.floor((now - breath.startedAt) / BREATH_CYCLE) : 0;
         return (
           <div className="widget-body breath-body">
             <div className={`breath-circle ${breath.running ? 'running' : ''}`}>
               <span>{breath.running ? breathPhase(now - breath.startedAt) : 'Ready'}</span>
             </div>
-            <div className="micro-copy">Box breathing · 4s each</div>
+            <div className="micro-copy">
+              {breath.running ? `${cycles} cycle${cycles === 1 ? '' : 's'} complete` : 'Box breathing · 4s each'}
+            </div>
             <div className="action-row">
               <button
                 type="button"
@@ -1919,6 +2248,94 @@ export default function App() {
             </div>
           </div>
         );
+      }
+
+      case 'weather': {
+        const info = weather.data ? weatherInfo(weather.data.current.weather_code) : null;
+        const CurrentIcon = info ? WEATHER_ICONS[info.icon] : CloudIcon;
+
+        if (!hasWeatherLocation || weatherEditing) {
+          return (
+            <div className="widget-body weather-setup">
+              <div className="weather-setup-head">
+                <CloudIcon size={18} />
+                <span>Where are you?</span>
+              </div>
+              <form className="inline-form" onSubmit={searchWeatherCity}>
+                <input
+                  type="text"
+                  value={weatherQuery}
+                  onChange={(event) => setWeatherQuery(event.target.value)}
+                  placeholder="City name…"
+                  aria-label="City name"
+                />
+                <button type="submit" className="primary" disabled={!weatherQuery.trim() || weatherBusy}>
+                  <PlusIcon size={15} />
+                </button>
+              </form>
+              <button type="button" className="weather-locate" onClick={useMyLocation} disabled={weatherBusy}>
+                <FitIcon size={14} />
+                Use my location
+              </button>
+              {weather.error && <div className="weather-error">{weather.error}</div>}
+            </div>
+          );
+        }
+
+        const current = weather.data?.current;
+        const daily = weather.data?.daily;
+        return (
+          <div className="widget-body weather-body">
+            {weather.error && <div className="weather-error">{weather.error}</div>}
+            {!current && !weather.error && <div className="hint">Loading forecast…</div>}
+            {current && (
+              <>
+                <div className="weather-now">
+                  <span className={`weather-glyph weather-glyph--${info.icon}`}>
+                    <CurrentIcon size={40} />
+                  </span>
+                  <div className="weather-readout">
+                    <strong>{Math.round(current.temperature_2m)}°</strong>
+                    <span>{info.label}</span>
+                  </div>
+                </div>
+                <div className="weather-place">{weatherLocation.place}</div>
+                <div className="weather-meta">
+                  <span>Feels {Math.round(current.apparent_temperature)}°</span>
+                  <span>{current.relative_humidity_2m}% humidity</span>
+                  <span>{Math.round(current.wind_speed_10m)} km/h</span>
+                </div>
+                {daily && (
+                  <div className="weather-days">
+                    {daily.time.slice(1, 4).map((day, dayIndex) => {
+                      const dayInfo = weatherInfo(daily.weather_code[dayIndex + 1]);
+                      const DayIcon = WEATHER_ICONS[dayInfo.icon];
+                      return (
+                        <div className="weather-day" key={day}>
+                          <span>{new Date(`${day}T00:00:00`).toLocaleDateString([], { weekday: 'short' })}</span>
+                          <DayIcon size={15} />
+                          <span className="weather-day-temps">
+                            {Math.round(daily.temperature_2m_max[dayIndex + 1])}° / {Math.round(daily.temperature_2m_min[dayIndex + 1])}°
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="weather-foot">
+                  <button type="button" className="text-btn" onClick={loadWeather} disabled={weather.status === 'loading'}>
+                    <RefreshIcon size={13} />
+                    Refresh
+                  </button>
+                  <button type="button" className="text-btn" onClick={() => setWeatherEditing(true)}>
+                    Change city
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      }
 
       case 'todoist': {
         if (!todoistToken || todoistEditing) {
@@ -2118,11 +2535,30 @@ export default function App() {
       style={{ '--accent': prefs.accent }}
     >
       <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true" />
-          <div>
-            <span className="brand-name">Focus Canvas</span>
-          </div>
+        <div className={`topbar-live ${liveWidgets.length ? 'is-live' : ''}`}>
+          <span className="topbar-live-label">
+            <span className="live-dot" aria-hidden="true" />
+            Live
+          </span>
+          {liveWidgets.length === 0 && <span className="topbar-live-empty">Nothing running</span>}
+          {liveWidgets.map((item) => {
+            const LiveIcon = item.icon;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className="live-chip"
+                title={item.label}
+                onClick={() => {
+                  const target = widgets.find((widget) => widget.id === item.id);
+                  if (target) focusWidget(target);
+                }}
+              >
+                <LiveIcon size={13} />
+                <span>{item.value}</span>
+              </button>
+            );
+          })}
         </div>
         <div className="topbar-actions">
           <button

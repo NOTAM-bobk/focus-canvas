@@ -249,6 +249,37 @@ export const ChevronRightIcon = (props) => (
   </Svg>
 );
 
+export const CloudIcon = (props) => (
+  <Svg {...props}>
+    <path d="M7 18a4 4 0 0 1-.4-7.98A5.5 5.5 0 0 1 17.2 9.2 4.4 4.4 0 0 1 17 18z" />
+  </Svg>
+);
+
+export const RainIcon = (props) => (
+  <Svg {...props}>
+    <path d="M7 15a4 4 0 0 1-.4-7.98A5.5 5.5 0 0 1 17.2 6.2 4.4 4.4 0 0 1 17 15z" />
+    <path d="M8 18l-1 3" />
+    <path d="M12.5 18l-1 3" />
+    <path d="M17 18l-1 3" />
+  </Svg>
+);
+
+export const SnowIcon = (props) => (
+  <Svg {...props}>
+    <path d="M7 14a4 4 0 0 1-.4-7.98A5.5 5.5 0 0 1 17.2 5.2 4.4 4.4 0 0 1 17 14z" />
+    <path d="M9 18v3" />
+    <path d="M15 18v3" />
+    <path d="M12 17.5v.01" />
+  </Svg>
+);
+
+export const StormIcon = (props) => (
+  <Svg {...props}>
+    <path d="M7 14a4 4 0 0 1-.4-7.98A5.5 5.5 0 0 1 17.2 5.2 4.4 4.4 0 0 1 17 14z" />
+    <path d="M13 14l-3 4h3l-1.5 4" />
+  </Svg>
+);
+
 export const StickyIcon = (props) => (
   <Svg {...props}>
     <path d="M5 3h9l6 6v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
@@ -314,4 +345,5 @@ export const ICONS = {
   flashcards: FlashcardIcon,
   picker: DiceIcon,
   breath: BreathIcon,
+  weather: CloudIcon,
 };
