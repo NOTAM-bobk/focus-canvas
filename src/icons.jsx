@@ -190,6 +190,15 @@ export const ResetIcon = (props) => (
   </Svg>
 );
 
+export const StickyIcon = (props) => (
+  <Svg {...props}>
+    <path d="M5 3h9l6 6v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+    <path d="M14 3v6h6" />
+    <path d="M8 13h5" />
+    <path d="M8 16.5h3" />
+  </Svg>
+);
+
 export const TodoistIcon = (props) => (
   <Svg {...props}>
     <path d="M3 6.5l1.8 1.8L8 5" />
@@ -242,4 +251,5 @@ export const ICONS = {
   sound: HeadphonesIcon,
   stats: ChartIcon,
   todoist: TodoistIcon,
+  sticky: StickyIcon,
 };

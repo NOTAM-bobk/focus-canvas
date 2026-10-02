@@ -21,6 +21,7 @@ import {
   ResetIcon,
   SlidersIcon,
   SproutIcon,
+  StickyIcon,
   StopwatchIcon,
   SunIcon,
   TimerIcon,
@@ -135,10 +136,13 @@ const WIDGET_CATALOG = [
   { key: 'links', label: 'Links', icon: LinkIcon, w: 270, h: 220 },
   { key: 'sound', label: 'Sound', icon: HeadphonesIcon, w: 290, h: 230 },
   { key: 'stats', label: 'Today', icon: ChartIcon, w: 300, h: 220 },
+  { key: 'sticky', label: 'Post-it', icon: StickyIcon, w: 250, h: 250 },
   { key: 'todoist', label: 'Todoist', icon: TodoistIcon, w: 340, h: 320 },
 ];
 
 const CATALOG_MAP = Object.fromEntries(WIDGET_CATALOG.map((item) => [item.key, item]));
+
+const STICKY_COLORS = ['#f7d64c', '#ffa07a', '#8fd3ff', '#9ae6b4', '#d9b8ff'];
 
 const createWidget = (type, overrides = {}) => {
   const meta = CATALOG_MAP[type];
@@ -151,6 +155,7 @@ const createWidget = (type, overrides = {}) => {
     y: 120,
     w: meta ? meta.w : 260,
     h: meta ? meta.h : 200,
+    ...(type === 'sticky' ? { text: '', color: STICKY_COLORS[0] } : {}),
     ...overrides,
   };
 };
@@ -164,6 +169,7 @@ const defaultSettings = {
   snap: false,
   scaleContent: true,
   zoomHud: true,
+  hiddenPalette: [],
 };
 const GRID_SIZES = [16, 24, 32];
 const ACCENT_PRESETS = ['#0070f3', '#ffffff', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
@@ -248,19 +254,69 @@ const dueLabel = (due) => {
 
 const CORNERS = ['nw', 'ne', 'sw', 'se'];
 
-function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, onDuplicate, onDragStart, onResizeStart, children }) {
+function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, onDuplicate, onDragStart, onResizeStart, onMobileResizeStart, children }) {
   const Icon = ICONS[widget.type] || TimerIcon;
   const meta = CATALOG_MAP[widget.type];
   const baseW = meta ? meta.w : widget.w;
   const baseH = meta ? meta.h : widget.h;
   const ws = !mobile && scaleContent ? Math.min(widget.w / baseW, widget.h / baseH) : 1;
+
+  // Mobile: press and hold a widget to reveal a hint naming it (press again to dismiss).
+  const [hintOpen, setHintOpen] = useState(false);
+  const longPressRef = useRef(null);
+  const pressRef = useRef(null);
+
+  const beginLongPress = (event) => {
+    if (!mobile) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest('button, a, input, textarea, select, .widget-resize')) return;
+    pressRef.current = { x: event.clientX, y: event.clientY };
+    clearTimeout(longPressRef.current);
+    longPressRef.current = setTimeout(() => {
+      setHintOpen((open) => !open);
+      pressRef.current = null;
+    }, 450);
+  };
+
+  const moveLongPress = (event) => {
+    if (!pressRef.current) return;
+    if (Math.abs(event.clientX - pressRef.current.x) > 10 || Math.abs(event.clientY - pressRef.current.y) > 10) {
+      clearTimeout(longPressRef.current);
+      pressRef.current = null;
+    }
+  };
+
+  const endLongPress = () => {
+    clearTimeout(longPressRef.current);
+    pressRef.current = null;
+  };
+
+  useEffect(() => () => clearTimeout(longPressRef.current), []);
+
+  const cardStyle = mobile
+    ? widget.mh
+      ? { minHeight: `${widget.mh}px` }
+      : undefined
+    : { left: `${widget.x}px`, top: `${widget.y}px`, width: `${widget.w}px`, height: `${widget.h}px`, '--ws': `${ws}` };
+
   return (
     <section
       className={`widget ${mobile ? 'widget--flow' : ''} ${focused ? 'is-focused' : ''}`}
-      style={mobile ? undefined : { left: `${widget.x}px`, top: `${widget.y}px`, width: `${widget.w}px`, height: `${widget.h}px`, '--ws': `${ws}` }}
+      style={cardStyle}
       onMouseDown={onFocus}
       onTouchStart={onFocus}
+      onPointerDown={beginLongPress}
+      onPointerMove={moveLongPress}
+      onPointerUp={endLongPress}
+      onPointerCancel={endLongPress}
+      onPointerLeave={endLongPress}
     >
+      {mobile && hintOpen && (
+        <button type="button" className="widget-hint" onClick={() => setHintOpen(false)}>
+          <Icon size={13} />
+          {meta ? meta.label : widget.title}
+        </button>
+      )}
       <header className={`widget-header ${mobile ? 'static' : ''}`} onPointerDown={mobile ? undefined : onDragStart}>
         <span className="widget-title">
           <Icon size={15} />
@@ -287,6 +343,11 @@ function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, 
             aria-hidden="true"
           />
         ))}
+      {mobile && (
+        <div className="widget-resize" onPointerDown={onMobileResizeStart} role="separator" aria-label="Resize widget">
+          <span className="widget-resize-grip" aria-hidden="true" />
+        </div>
+      )}
     </section>
   );
 }
@@ -735,6 +796,29 @@ export default function App() {
     window.addEventListener('pointerup', up);
   }, [widgets, view.scale, updateWidget, prefs.snap, prefs.gridSize]);
 
+  const startMobileResize = useCallback((event, widgetId) => {
+    event.stopPropagation();
+    if (event.cancelable) event.preventDefault();
+    const widget = widgets.find((item) => item.id === widgetId);
+    if (!widget) return;
+    const section = event.currentTarget.closest('.widget');
+    const startY = event.clientY;
+    const startH = section ? section.getBoundingClientRect().height : widget.mh || 240;
+
+    const move = (moveEvent) => {
+      const next = clamp(Math.round(startH + (moveEvent.clientY - startY)), 160, 1600);
+      updateWidget(widgetId, { mh: next });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  }, [widgets, updateWidget]);
+
   /* ------------------------------------------------------------------ */
   /*  Data helpers                                                      */
   /* ------------------------------------------------------------------ */
@@ -781,6 +865,16 @@ export default function App() {
   };
 
   const clearCanvas = () => setWidgets([]);
+
+  const togglePaletteItem = (key) => {
+    setSettings((current) => {
+      const hidden = current.hiddenPalette ?? [];
+      return {
+        ...current,
+        hiddenPalette: hidden.includes(key) ? hidden.filter((item) => item !== key) : [...hidden, key],
+      };
+    });
+  };
 
   /* ------------------------------------------------------------------ */
   /*  Widget bodies                                                     */
@@ -1185,6 +1279,31 @@ export default function App() {
         );
       }
 
+      case 'sticky':
+        return (
+          <div className="sticky" style={{ background: widget.color || STICKY_COLORS[0] }}>
+            <textarea
+              className="sticky-text"
+              value={widget.text || ''}
+              onChange={(event) => updateWidget(widget.id, { text: event.target.value })}
+              placeholder="Write a note…"
+              aria-label="Sticky note text"
+            />
+            <div className="sticky-colors" onPointerDown={(event) => event.stopPropagation()}>
+              {STICKY_COLORS.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  className={`sticky-swatch ${(widget.color || STICKY_COLORS[0]) === color ? 'active' : ''}`}
+                  style={{ background: color }}
+                  aria-label={`Sticky color ${color}`}
+                  onClick={() => updateWidget(widget.id, { color })}
+                />
+              ))}
+            </div>
+          </div>
+        );
+
       case 'todoist': {
         if (!todoistToken || todoistEditing) {
           return (
@@ -1386,6 +1505,7 @@ export default function App() {
               onRemove={() => removeWidget(widget.id)}
               onDuplicate={() => duplicateWidget(widget.id)}
               scaleContent={prefs.scaleContent}
+              onMobileResizeStart={(event) => startMobileResize(event, widget.id)}
             >
               {renderWidgetBody(widget)}
             </WidgetCard>
@@ -1450,7 +1570,7 @@ export default function App() {
 
       <nav className="toolbar">
         <div className="toolbar-palette">
-          {WIDGET_CATALOG.map((item) => {
+          {WIDGET_CATALOG.filter((item) => !prefs.hiddenPalette.includes(item.key)).map((item) => {
             const Icon = item.icon;
             return (
               <button key={item.key} type="button" className="palette-item" onClick={() => addWidget(item.key)} title={`Add ${item.label}`}>
@@ -1459,6 +1579,9 @@ export default function App() {
               </button>
             );
           })}
+          {WIDGET_CATALOG.every((item) => prefs.hiddenPalette.includes(item.key)) && (
+            <span className="palette-empty">All widgets hidden</span>
+          )}
         </div>
         <div className="toolbar-end">
           <button type="button" className="palette-text" onClick={clearCanvas} disabled={visibleWidgets.length === 0}>
@@ -1587,6 +1710,38 @@ export default function App() {
             onChange={(event) => setSettings((current) => ({ ...current, zoomHud: event.target.checked }))}
           />
         </label>
+
+        <div className="field">
+          <span className="field-label">Bottom bar widgets</span>
+          <div className="palette-toggles">
+            {WIDGET_CATALOG.map((item) => {
+              const Icon = item.icon;
+              return (
+                <label className="palette-toggle" key={item.key}>
+                  <span className="palette-toggle-name">
+                    <Icon size={14} />
+                    {item.label}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={!prefs.hiddenPalette.includes(item.key)}
+                    onChange={() => togglePaletteItem(item.key)}
+                    aria-label={`Show ${item.label} in the bottom bar`}
+                  />
+                </label>
+              );
+            })}
+          </div>
+          {prefs.hiddenPalette.length > 0 && (
+            <button
+              type="button"
+              className="text-btn"
+              onClick={() => setSettings((current) => ({ ...current, hiddenPalette: [] }))}
+            >
+              Show all widgets
+            </button>
+          )}
+        </div>
 
         <div className="panel-divider" />
 

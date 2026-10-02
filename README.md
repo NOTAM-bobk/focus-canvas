@@ -16,8 +16,13 @@ A minimalist, Vercel-styled focus whiteboard. Start with an empty canvas, drop i
 - Hydration tracker, inspiration quotes, ambient soundscape (white / pink / brown / rain)
 - Live clock, notes, quick links, and a daily stats summary
 - Todoist — connect with a personal API token to view, complete, and add tasks from the board
+- Post-it notes — colourful sticky notes with per-note text and colour
 
-All state is stored in `localStorage`. Theme, accent color, grid style/size, snapping, and widget content scaling are configurable in the sidebar.
+All state is stored in `localStorage`. Theme, accent color, grid style/size, snapping, widget content scaling, zoom controls, and which widgets appear in the bottom bar are configurable in the sidebar.
+
+## On mobile
+
+Widgets stack in a single scrollable column. **Press and hold** a widget to reveal a hint naming it (press and hold again, or tap the hint, to dismiss). Drag the grip at the bottom of a widget to resize it.
 
 ## Development
 
