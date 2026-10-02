@@ -4,6 +4,7 @@ import {
   BoardIcon,
   BreathIcon,
   CalendarIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ClockIcon,
@@ -23,11 +24,13 @@ import {
   HeadphonesIcon,
   HighlighterIcon,
   ImageIcon,
+  LayersIcon,
   LinkIcon,
   LockIcon,
   MinusIcon,
   MoonIcon,
   NoteIcon,
+  PencilIcon,
   PenIcon,
   PlusIcon,
   QuoteIcon,
@@ -69,6 +72,8 @@ const KEYS = {
   todoist: 'focus-canvas-todoist-v3',
   weather: 'focus-canvas-weather-v3',
   draw: 'focus-canvas-draw-v3',
+  workspaces: 'focus-canvas-workspaces-v3',
+  activeWorkspace: 'focus-canvas-active-workspace-v3',
 };
 
 const MIN_ZOOM = 0.15;
@@ -103,7 +108,8 @@ const readState = (key, fallback) => {
 const useLocalStorageState = (key, initial) => {
   const [value, setValue] = useState(() => {
     const stored = readState(key, undefined);
-    return stored === undefined ? initial : stored;
+    if (stored !== undefined) return stored;
+    return typeof initial === 'function' ? initial() : initial;
   });
 
   useEffect(() => {
@@ -181,6 +187,30 @@ const WIDGET_CATALOG = [
 const CATALOG_MAP = Object.fromEntries(WIDGET_CATALOG.map((item) => [item.key, item]));
 
 const STICKY_COLORS = ['#f7d64c', '#ffa07a', '#8fd3ff', '#9ae6b4', '#d9b8ff'];
+
+const WS_COLORS = ['#0070f3', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4', '#64748b'];
+
+const makeWorkspace = (name, color, widgets = [], strokes = []) => ({
+  id: uid('ws'),
+  name,
+  color,
+  widgets,
+  strokes,
+});
+
+// Seed the first workspace from a board saved before workspaces existed.
+const seedWorkspaces = () => {
+  const existingWidgets = readState(KEYS.widgets, []);
+  const existingStrokes = readState(KEYS.draw, []);
+  return [
+    makeWorkspace(
+      'Home',
+      '#0070f3',
+      Array.isArray(existingWidgets) ? existingWidgets : [],
+      Array.isArray(existingStrokes) ? existingStrokes : [],
+    ),
+  ];
+};
 
 const createWidget = (type, overrides = {}) => {
   const meta = CATALOG_MAP[type];
@@ -509,7 +539,7 @@ const addDays = (dateStr, days) => {
 
 const CORNERS = ['nw', 'ne', 'sw', 'se'];
 
-function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, onDuplicate, onToggleLock, onDragStart, onResizeStart, onMobileResizeStart, children }) {
+function WidgetCard({ widget, focused, mobile, scaleContent, resizing, onFocus, onRemove, onDuplicate, onToggleLock, onDragStart, onResizeStart, onMobileResizeStart, children }) {
   const Icon = ICONS[widget.type] || TimerIcon;
   const meta = CATALOG_MAP[widget.type];
   const baseW = meta ? meta.w : widget.w;
@@ -598,7 +628,7 @@ function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, 
 
   return (
     <section
-      className={`widget ${mobile ? 'widget--flow' : ''} ${isSticky ? 'widget--sticky' : ''} ${focused ? 'is-focused' : ''} ${widget.locked ? 'is-locked' : ''}`}
+      className={`widget ${mobile ? 'widget--flow' : ''} ${isSticky ? 'widget--sticky' : ''} ${focused ? 'is-focused' : ''} ${resizing ? 'is-resizing' : ''} ${widget.locked ? 'is-locked' : ''}`}
       data-type={widget.type}
       id={`widget-${widget.id}`}
       style={cardStyle}
@@ -635,6 +665,11 @@ function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, 
           {actionButtons}
         </div>
       )}
+      {!mobile && resizing && (
+        <span className="widget-size-badge">
+          {resizing.w != null ? `${Math.round(resizing.w)} × ${Math.round(resizing.h)}` : `${Math.round(resizing.h)} px`}
+        </span>
+      )}
       {!mobile &&
         !widget.locked &&
         CORNERS.map((corner) => (
@@ -665,7 +700,47 @@ export default function App() {
 
   const [settings, setSettings] = useLocalStorageState(KEYS.settings, defaultSettings);
   const prefs = useMemo(() => ({ ...defaultSettings, ...settings }), [settings]);
-  const [widgets, setWidgets] = useLocalStorageState(KEYS.widgets, []);
+
+  // Workspaces own the canvas (widgets + drawing) so each board stays separate.
+  const [workspaces, setWorkspaces] = useLocalStorageState(KEYS.workspaces, seedWorkspaces);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useLocalStorageState(KEYS.activeWorkspace, '');
+  const [wsOpen, setWsOpen] = useState(false);
+  const [renamingWorkspaceId, setRenamingWorkspaceId] = useState(null);
+  const [renameDraft, setRenameDraft] = useState('');
+
+  const activeWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) || workspaces[0] || null,
+    [workspaces, activeWorkspaceId],
+  );
+  const activeId = activeWorkspace ? activeWorkspace.id : '';
+
+  const setWidgets = useCallback(
+    (updater) =>
+      setWorkspaces((current) =>
+        current.map((workspace) =>
+          workspace.id === activeId
+            ? { ...workspace, widgets: typeof updater === 'function' ? updater(workspace.widgets) : updater }
+            : workspace,
+        ),
+      ),
+    [activeId, setWorkspaces],
+  );
+
+  const setStrokes = useCallback(
+    (updater) =>
+      setWorkspaces((current) =>
+        current.map((workspace) =>
+          workspace.id === activeId
+            ? { ...workspace, strokes: typeof updater === 'function' ? updater(workspace.strokes) : updater }
+            : workspace,
+        ),
+      ),
+    [activeId, setWorkspaces],
+  );
+
+  const widgets = activeWorkspace ? activeWorkspace.widgets : [];
+  const strokes = activeWorkspace ? activeWorkspace.strokes : [];
+
   const [notesText, setNotesText] = useLocalStorageState(KEYS.notes, '');
   const [tasks, setTasks] = useLocalStorageState(KEYS.tasks, DEFAULT_TASKS);
   const [habits, setHabits] = useLocalStorageState(KEYS.habits, DEFAULT_HABITS);
@@ -692,7 +767,6 @@ export default function App() {
   const [weatherEditing, setWeatherEditing] = useState(false);
   const [weatherBusy, setWeatherBusy] = useState(false);
 
-  const [strokes, setStrokes] = useLocalStorageState(KEYS.draw, []);
   const [strokeDraft, setStrokeDraft] = useState(null);
   const [past, setPast] = useState([]);
   const [future, setFuture] = useState([]);
@@ -712,6 +786,7 @@ export default function App() {
   const [now, setNow] = useState(() => Date.now());
   const [view, setView] = useState(DEFAULT_VIEW);
   const [focusedId, setFocusedId] = useState(null);
+  const [resizing, setResizing] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
@@ -1146,9 +1221,19 @@ export default function App() {
     const element = viewportRef.current;
     if (!element || isMobile) return undefined;
     const onWheel = (event) => {
-      if (!(event.ctrlKey || event.metaKey)) return;
+      const target = event.target;
+      const zooming = event.ctrlKey || event.metaKey;
+      // Let text areas and scrollable widget lists scroll themselves.
+      if (!zooming && target instanceof Element && target.closest('.scrollable, textarea')) return;
       event.preventDefault();
-      zoomAt(event.deltaY < 0 ? 1.12 : 1 / 1.12, event.clientX, event.clientY);
+      // Pinch or Ctrl/Cmd + wheel zooms around the pointer…
+      if (zooming) {
+        zoomAt(event.deltaY < 0 ? 1.12 : 1 / 1.12, event.clientX, event.clientY);
+        return;
+      }
+      // …while a plain two-finger scroll pans the board, so you can move and
+      // zoom the canvas at the same time.
+      setView((current) => ({ ...current, x: current.x - event.deltaX, y: current.y - event.deltaY }));
     };
     element.addEventListener('wheel', onWheel, { passive: false });
     return () => element.removeEventListener('wheel', onWheel);
@@ -1167,7 +1252,7 @@ export default function App() {
       pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
       if (pointers.size === 2) {
         const [a, b] = pointers.values();
-        pinchRef.current = { distance: distanceBetween(a, b) };
+        pinchRef.current = { distance: distanceBetween(a, b), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
       }
     };
 
@@ -1177,11 +1262,17 @@ export default function App() {
       if (pointers.size < 2 || !pinchRef.current) return;
       const [a, b] = pointers.values();
       const nextDistance = distanceBetween(a, b);
-      const previous = pinchRef.current.distance;
-      if (previous > 0 && nextDistance > 0) {
-        zoomAt(nextDistance / previous, (a.x + b.x) / 2, (a.y + b.y) / 2);
+      const cx = (a.x + b.x) / 2;
+      const cy = (a.y + b.y) / 2;
+      const previous = pinchRef.current;
+      if (previous.distance > 0 && nextDistance > 0) {
+        zoomAt(nextDistance / previous.distance, cx, cy);
       }
-      pinchRef.current = { distance: nextDistance };
+      // Two fingers also drag the board, so zooming and moving happen together.
+      const dx = cx - previous.cx;
+      const dy = cy - previous.cy;
+      if (dx || dy) setView((current) => ({ ...current, x: current.x + dx, y: current.y + dy }));
+      pinchRef.current = { distance: nextDistance, cx, cy };
     };
 
     const release = (event) => {
@@ -1213,6 +1304,29 @@ export default function App() {
     document.addEventListener('pointerdown', onPointerDown, true);
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
   }, []);
+
+  /* --- keep the active workspace pointing at a real workspace --- */
+  useEffect(() => {
+    if (!workspaces.length) {
+      setWorkspaces([makeWorkspace('Home', '#0070f3')]);
+      return;
+    }
+    if (!workspaces.some((workspace) => workspace.id === activeWorkspaceId)) {
+      setActiveWorkspaceId(workspaces[0].id);
+    }
+  }, [workspaces, activeWorkspaceId, setActiveWorkspaceId, setWorkspaces]);
+
+  /* --- close the workspace menu on an outside click --- */
+  useEffect(() => {
+    if (!wsOpen) return undefined;
+    const onPointerDown = (event) => {
+      if (event.target instanceof Element && event.target.closest('.ws-switcher')) return;
+      setWsOpen(false);
+      setRenamingWorkspaceId(null);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, [wsOpen]);
 
   const startPan = (event) => {
     const target = event.target;
@@ -1572,8 +1686,11 @@ export default function App() {
       if (corner.includes('w')) x = origin.x + origin.w - w;
       if (corner.includes('n')) y = origin.y + origin.h - h;
       updateWidget(widgetId, { x, y, w, h });
+      setResizing({ id: widgetId, w, h });
     };
+    setResizing({ id: widgetId, w: origin.w, h: origin.h });
     const up = () => {
+      setResizing(null);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
     };
@@ -1593,8 +1710,11 @@ export default function App() {
     const move = (moveEvent) => {
       const next = clamp(Math.round(startH + (moveEvent.clientY - startY)), 160, 1600);
       updateWidget(widgetId, { mh: next });
+      setResizing({ id: widgetId, w: null, h: next });
     };
+    setResizing({ id: widgetId, w: null, h: Math.round(startH) });
     const up = () => {
+      setResizing(null);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
@@ -1660,6 +1780,68 @@ export default function App() {
       };
     });
   };
+
+  /* --- workspaces --- */
+
+  const switchWorkspace = useCallback(
+    (id) => {
+      setActiveWorkspaceId(id);
+      setFocusedId(null);
+      setRenamingWorkspaceId(null);
+      setWsOpen(false);
+      // Drawing history belongs to the workspace we just left.
+      setPast([]);
+      setFuture([]);
+    },
+    [setActiveWorkspaceId],
+  );
+
+  const addWorkspace = useCallback(() => {
+    const workspace = makeWorkspace(
+      `Workspace ${workspaces.length + 1}`,
+      WS_COLORS[workspaces.length % WS_COLORS.length],
+    );
+    setWorkspaces((current) => [...current, workspace]);
+    setActiveWorkspaceId(workspace.id);
+    setFocusedId(null);
+    setRenamingWorkspaceId(null);
+    setWsOpen(false);
+    setPast([]);
+    setFuture([]);
+  }, [workspaces.length, setWorkspaces, setActiveWorkspaceId]);
+
+  const renameWorkspace = useCallback(
+    (id, name) => {
+      const trimmed = (name || '').trim();
+      if (trimmed) {
+        setWorkspaces((current) =>
+          current.map((workspace) => (workspace.id === id ? { ...workspace, name: trimmed } : workspace)),
+        );
+      }
+      setRenamingWorkspaceId(null);
+    },
+    [setWorkspaces],
+  );
+
+  const setWorkspaceColor = useCallback(
+    (id, color) =>
+      setWorkspaces((current) =>
+        current.map((workspace) => (workspace.id === id ? { ...workspace, color } : workspace)),
+      ),
+    [setWorkspaces],
+  );
+
+  const deleteWorkspace = useCallback(
+    (id) => {
+      if (workspaces.length <= 1) return;
+      const next = workspaces.filter((workspace) => workspace.id !== id);
+      setWorkspaces(next);
+      if (id === activeId) setActiveWorkspaceId(next[0].id);
+      setFocusedId(null);
+      setRenamingWorkspaceId(null);
+    },
+    [workspaces, activeId, setWorkspaces, setActiveWorkspaceId],
+  );
 
   /* --- timers --- */
 
@@ -1838,6 +2020,15 @@ export default function App() {
         run: () => focusWidget(widget),
       });
     });
+    workspaces.forEach((workspace) => {
+      commands.push({
+        id: `ws:${workspace.id}`,
+        group: 'Workspace',
+        label: `Switch to ${workspace.name}`,
+        icon: LayersIcon,
+        run: () => switchWorkspace(workspace.id),
+      });
+    });
     commands.push(
       { id: 'action:reset', group: 'Action', label: 'Reset zoom & position', icon: FitIcon, run: resetView },
       {
@@ -1856,6 +2047,7 @@ export default function App() {
       },
       { id: 'action:settings', group: 'Action', label: 'Open customize', icon: SlidersIcon, run: () => setSettingsOpen(true) },
       { id: 'action:clear', group: 'Action', label: 'Clear canvas', icon: TrashIcon, run: () => setWidgets([]) },
+      { id: 'ws:new', group: 'Workspace', label: 'New workspace', icon: PlusIcon, run: addWorkspace },
       {
         id: 'draw:toggle',
         group: 'Draw',
@@ -1883,6 +2075,9 @@ export default function App() {
   }, [
     paletteQuery,
     visibleWidgets,
+    workspaces,
+    addWorkspace,
+    switchWorkspace,
     addWidget,
     applyTemplate,
     focusWidget,
@@ -2999,6 +3194,105 @@ export default function App() {
             );
           })}
         </div>
+
+        <div className="ws-switcher">
+          <button
+            type="button"
+            className={`ws-button ${wsOpen ? 'open' : ''}`}
+            onClick={() => setWsOpen((open) => !open)}
+            aria-haspopup="menu"
+            aria-expanded={wsOpen}
+            title="Workspaces"
+          >
+            <span className="ws-dot" style={{ background: activeWorkspace?.color || 'var(--accent)' }} />
+            <span className="ws-name">{activeWorkspace?.name || 'Workspace'}</span>
+            <span className="ws-count">{workspaces.length}</span>
+            <ChevronDownIcon size={14} className="ws-caret" />
+          </button>
+          {wsOpen && (
+            <div className="ws-menu" role="menu">
+              <div className="ws-menu-head">Workspaces</div>
+              <div className="ws-list">
+                {workspaces.map((workspace) => {
+                  const isActive = workspace.id === activeId;
+                  const isRenaming = renamingWorkspaceId === workspace.id;
+                  return (
+                    <div className={`ws-row ${isActive ? 'active' : ''}`} key={workspace.id}>
+                      {isRenaming ? (
+                        <>
+                          <form
+                            className="ws-rename"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              renameWorkspace(workspace.id, renameDraft);
+                            }}
+                          >
+                            <input
+                              autoFocus
+                              type="text"
+                              value={renameDraft}
+                              maxLength={32}
+                              onChange={(event) => setRenameDraft(event.target.value)}
+                              onBlur={() => renameWorkspace(workspace.id, renameDraft)}
+                              aria-label="Workspace name"
+                            />
+                          </form>
+                          <div className="ws-colors">
+                            {WS_COLORS.map((color) => (
+                              <button
+                                key={color}
+                                type="button"
+                                className={`ws-color ${workspace.color === color ? 'active' : ''}`}
+                                style={{ background: color }}
+                                aria-label={`Workspace color ${color}`}
+                                onClick={() => setWorkspaceColor(workspace.id, color)}
+                              />
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <button type="button" className="ws-select" onClick={() => switchWorkspace(workspace.id)}>
+                            <span className="ws-dot" style={{ background: workspace.color }} />
+                            <span className="ws-name">{workspace.name}</span>
+                            {isActive && <CheckSquareIcon size={13} className="ws-check" />}
+                          </button>
+                          <div className="ws-row-actions">
+                            <button
+                              type="button"
+                              className="icon-btn"
+                              aria-label={`Rename ${workspace.name}`}
+                              onClick={() => {
+                                setRenamingWorkspaceId(workspace.id);
+                                setRenameDraft(workspace.name);
+                              }}
+                            >
+                              <PencilIcon size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-btn"
+                              aria-label={`Delete ${workspace.name}`}
+                              disabled={workspaces.length <= 1}
+                              onClick={() => deleteWorkspace(workspace.id)}
+                            >
+                              <TrashIcon size={13} />
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <button type="button" className="ws-new" onClick={addWorkspace}>
+                <PlusIcon size={14} />
+                <span>New workspace</span>
+              </button>
+            </div>
+          )}
+        </div>
+
         <div className="topbar-actions">
           {!isMobile && (
             <button
@@ -3051,6 +3345,7 @@ export default function App() {
               onDuplicate={() => duplicateWidget(widget.id)}
               onToggleLock={() => toggleLock(widget.id)}
               scaleContent={prefs.scaleContent}
+              resizing={resizing && resizing.id === widget.id ? resizing : null}
               onMobileResizeStart={(event) => startMobileResize(event, widget.id)}
             >
               {renderWidgetBody(widget)}
@@ -3080,6 +3375,7 @@ export default function App() {
                 widget={widget}
                 focused={focusedId === widget.id}
                 scaleContent={prefs.scaleContent}
+                resizing={resizing && resizing.id === widget.id ? resizing : null}
                 onFocus={() => setFocusedId(widget.id)}
                 onRemove={() => removeWidget(widget.id)}
                 onDuplicate={() => duplicateWidget(widget.id)}

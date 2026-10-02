@@ -237,6 +237,26 @@ export const BreathIcon = (props) => (
   </Svg>
 );
 
+export const ChevronDownIcon = (props) => (
+  <Svg {...props}>
+    <path d="M5 9l7 7 7-7" />
+  </Svg>
+);
+
+export const LayersIcon = (props) => (
+  <Svg {...props}>
+    <path d="M12 3l9 5-9 5-9-5 9-5z" />
+    <path d="M3 13l9 5 9-5" />
+  </Svg>
+);
+
+export const PencilIcon = (props) => (
+  <Svg {...props}>
+    <path d="M4 20l4-1 9.5-9.5a2.1 2.1 0 0 0-3-3L5 16l-1 4z" />
+    <path d="M13.5 6.5l3 3" />
+  </Svg>
+);
+
 export const ChevronLeftIcon = (props) => (
   <Svg {...props}>
     <path d="M15 5l-7 7 7 7" />

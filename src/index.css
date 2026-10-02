@@ -30,7 +30,7 @@
   --border: #eaeaea;
   --border-2: #d4d4d4;
   --text: #000000;
-  --muted: #666666;
+  --muted: #545454;
   --dot: rgba(0, 0, 0, 0.10);
   --shadow: 0 10px 40px rgba(0, 0, 0, 0.12);
   color-scheme: light;
@@ -123,6 +123,12 @@ input[type='range'] {
 
 textarea {
   resize: none;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -466,24 +472,65 @@ textarea {
 /* corner resize handles */
 .handle {
   position: absolute;
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid var(--accent);
-  border-radius: 3px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--accent);
+  border-radius: 4px;
   background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
   opacity: 0;
-  transition: opacity 0.14s ease;
+  transform: scale(0.7);
+  transition: opacity 0.14s ease, transform 0.14s ease, background 0.14s ease,
+    border-color 0.14s ease;
 }
 
 .widget:hover .handle,
-.widget.is-focused .handle {
+.widget.is-focused .handle,
+.widget.is-resizing .handle {
   opacity: 1;
+  transform: scale(1);
 }
 
-.handle--nw { top: -5px; left: -5px; cursor: nwse-resize; }
-.handle--ne { top: -5px; right: -5px; cursor: nesw-resize; }
-.handle--sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
-.handle--se { bottom: -5px; right: -5px; cursor: nwse-resize; }
+.handle:hover {
+  transform: scale(1.3);
+  background: var(--widget-accent, var(--accent));
+}
+
+.widget.is-resizing .handle {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.handle--nw { top: -6px; left: -6px; cursor: nwse-resize; }
+.handle--ne { top: -6px; right: -6px; cursor: nesw-resize; }
+.handle--sw { bottom: -6px; left: -6px; cursor: nesw-resize; }
+.handle--se { bottom: -6px; right: -6px; cursor: nwse-resize; }
+
+/* live size read-out while resizing */
+.widget.is-resizing {
+  transition: none;
+  z-index: 5;
+  box-shadow: var(--shadow), 0 0 0 1px var(--widget-accent, var(--accent)),
+    0 0 0 8px color-mix(in srgb, var(--widget-accent, var(--accent)) 18%, transparent);
+}
+
+.widget-size-badge {
+  position: absolute;
+  bottom: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--bg);
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+  pointer-events: none;
+  z-index: 6;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Shared primitives                                                 */
@@ -2567,4 +2614,470 @@ textarea {
   .palette-modal {
     max-height: 70vh;
   }
+
+  .ws-count,
+  .ws-button .ws-caret {
+    display: none;
+  }
+
+  .ws-button {
+    max-width: 150px;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Workspaces                                                        */
+/* ------------------------------------------------------------------ */
+
+.ws-switcher {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.ws-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 280px;
+  padding: 6px 10px 6px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.ws-button:hover:not(:disabled) {
+  border-color: var(--border-2);
+}
+
+.ws-button.open {
+  border-color: var(--border-2);
+  background: var(--surface-3);
+}
+
+.ws-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.ws-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-count {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.ws-caret {
+  color: var(--muted);
+  flex-shrink: 0;
+  transition: transform 0.16s ease;
+}
+
+.ws-button.open .ws-caret {
+  transform: rotate(180deg);
+}
+
+.ws-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(290px, calc(100vw - 24px));
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  z-index: 60;
+  animation: hudIn 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.ws-menu-head {
+  padding: 4px 8px 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.ws-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.ws-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px;
+  border-radius: 8px;
+}
+
+.ws-row.active {
+  background: var(--surface-2);
+}
+
+.ws-select {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 9px;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+}
+
+.ws-select:hover:not(:disabled) {
+  background: var(--surface-3);
+  border-color: transparent;
+}
+
+.ws-check {
+  margin-left: auto;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.ws-row-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.14s ease;
+}
+
+.ws-row:hover .ws-row-actions,
+.ws-row.active .ws-row-actions {
+  opacity: 1;
+}
+
+.ws-rename {
+  flex: 1;
+  padding: 3px;
+}
+
+.ws-rename input {
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.ws-colors {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  width: 100%;
+  padding: 6px 8px 4px;
+}
+
+.ws-color {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border-2);
+}
+
+.ws-color.active {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.ws-new {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 9px 10px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ws-new:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-3);
+  border-color: transparent;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Skeuomorphic widget materials                                     */
+/* ------------------------------------------------------------------ */
+
+/* Devices — glossy bodies with inset LCD screens. */
+.widget[data-type='timer'],
+.widget[data-type='stopwatch'],
+.widget[data-type='pandora'],
+.widget[data-type='countdown'],
+.widget[data-type='clock'] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-3) 92%, #ffffff 8%), var(--surface));
+  border-color: var(--border-2);
+}
+
+.widget[data-type='timer'] { --screen-bg: #0b1424; --screen-fg: #cfe4ff; }
+.widget[data-type='stopwatch'] { --screen-bg: #08181c; --screen-fg: #c8fbff; }
+.widget[data-type='pandora'] { --screen-bg: #140f26; --screen-fg: #e2d9ff; }
+.widget[data-type='countdown'] { --screen-bg: #1e0d14; --screen-fg: #ffd6df; }
+.widget[data-type='clock'] { --screen-bg: #0d1117; --screen-fg: #e6edf6; }
+
+.widget[data-type='timer'] .big-number,
+.widget[data-type='stopwatch'] .big-number,
+.widget[data-type='pandora'] .big-number,
+.widget[data-type='clock'] .clock-time {
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--screen-bg);
+  color: var(--screen-fg);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.65), inset 0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 1px 0 rgba(255, 255, 255, 0.05);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--screen-fg) 55%, transparent);
+}
+
+.widget[data-type='clock'] .clock-time .clock-seconds {
+  color: color-mix(in srgb, var(--screen-fg) 65%, transparent);
+}
+
+.widget[data-type='countdown'] .countdown-cell {
+  background: var(--screen-bg);
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+.widget[data-type='countdown'] .countdown-cell strong {
+  color: var(--screen-fg);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--screen-fg) 50%, transparent);
+}
+
+.widget[data-type='countdown'] .countdown-cell span {
+  color: color-mix(in srgb, var(--screen-fg) 60%, transparent);
+}
+
+/* Notes — a lined notebook page with a red margin rule. */
+.widget[data-type='notes'] .notes-area {
+  border-radius: 5px;
+  background-color: var(--surface-2);
+  background-image: linear-gradient(
+      90deg,
+      transparent 0 33px,
+      color-mix(in srgb, #ef4444 42%, transparent) 33px 34px,
+      transparent 34px
+    ),
+    repeating-linear-gradient(
+      180deg,
+      transparent 0 27px,
+      color-mix(in srgb, var(--border-2) 65%, transparent) 27px 28px
+    );
+  background-size: 100% 100%, 100% 28px;
+  line-height: 28px;
+  padding-left: 44px;
+}
+
+/* Flashcards — an index card with a top rule and a folded corner. */
+.widget[data-type='flashcards'] .flashcard {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  border: 1px solid var(--border-2);
+  background: linear-gradient(180deg, var(--surface), var(--surface-2));
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+}
+
+.widget[data-type='flashcards'] .flashcard::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  left: 18px;
+  right: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: color-mix(in srgb, #ef4444 60%, transparent);
+}
+
+.widget[data-type='flashcards'] .flashcard::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 22px;
+  height: 22px;
+  background: linear-gradient(135deg, transparent 50%, var(--surface-3) 50%);
+  box-shadow: -2px -2px 4px rgba(0, 0, 0, 0.12);
+}
+
+/* Picker — a raffle ticket with notched edges. */
+.widget[data-type='picker'] .picker-body {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--border-2);
+  background-color: var(--surface-2);
+  background-image: radial-gradient(circle at 0 50%, var(--surface) 6px, transparent 7px),
+    radial-gradient(circle at 100% 50%, var(--surface) 6px, transparent 7px),
+    linear-gradient(180deg, color-mix(in srgb, #f97316 12%, var(--surface-2)), var(--surface-2));
+}
+
+/* Todoist — a clipboard with a metal clip. */
+.widget[data-type='todoist'] .widget-scale {
+  padding-top: 18px;
+}
+
+.widget[data-type='todoist'] .widget-content::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 46px;
+  height: 12px;
+  border-radius: 0 0 6px 6px;
+  background: linear-gradient(180deg, var(--border-2), var(--surface-3));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* Water — small drinking glasses. */
+.water-drop {
+  position: relative;
+  width: 22px;
+  height: 30px;
+  border-radius: 4px 4px 10px 10px / 4px 4px 14px 14px;
+  border: 1px solid var(--border-2);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-3) 80%, transparent), var(--surface-2));
+  overflow: hidden;
+}
+
+.water-drop::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  width: 4px;
+  height: 42%;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.water-drop.filled {
+  border-color: #38bdf8;
+  background: linear-gradient(180deg, #7dd3fc, #0ea5e9);
+  box-shadow: inset 0 -6px 10px rgba(0, 0, 0, 0.18), 0 2px 6px rgba(14, 165, 233, 0.35);
+}
+
+.water-drop.filled::after {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+/* Sound — a speaker panel with a grille. */
+.widget[data-type='sound'] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--surface-3) 92%, #ffffff 8%), var(--surface));
+}
+
+.widget[data-type='sound'] .sound-toggle {
+  border-radius: 10px;
+  border-color: var(--border-2);
+  background: radial-gradient(circle at 6px 50%, rgba(0, 0, 0, 0.22) 1.5px, transparent 2px) 0 0 / 12px 12px,
+    linear-gradient(180deg, var(--surface-3), var(--surface-2));
+}
+
+/* Weather — a little sky window. */
+.widget[data-type='weather'] {
+  background: linear-gradient(180deg, color-mix(in srgb, #38bdf8 18%, var(--surface)), var(--surface) 58%);
+}
+
+.widget[data-type='weather'] .weather-glyph {
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.35), transparent 60%), var(--surface-2);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #38bdf8 30%, transparent);
+}
+
+/* Breath — a glowing orb. */
+.widget[data-type='breath'] .breath-circle {
+  width: 130px;
+  height: 130px;
+  border: 1px solid color-mix(in srgb, #38bdf8 45%, transparent);
+  background: radial-gradient(
+    circle at 50% 35%,
+    color-mix(in srgb, #38bdf8 55%, transparent),
+    color-mix(in srgb, #38bdf8 10%, transparent) 65%,
+    transparent 72%
+  );
+  box-shadow: 0 0 30px color-mix(in srgb, #38bdf8 30%, transparent),
+    inset 0 0 20px color-mix(in srgb, #38bdf8 25%, transparent);
+}
+
+/* Links — raised toolbar buttons. */
+.widget[data-type='links'] .link-pill {
+  border-color: var(--border-2);
+  background: linear-gradient(180deg, var(--surface-3), var(--surface-2));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* Stats — inset gauges. */
+.widget[data-type='stats'] .stat-cell {
+  border-color: var(--border-2);
+  background: linear-gradient(180deg, var(--surface-2), var(--surface-3));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 1px 2px rgba(0, 0, 0, 0.16);
+}
+
+/* Habits — a bullet-journal tracker grid. */
+.widget[data-type='habits'] .habit-dot {
+  border-radius: 50%;
+}
+
+.widget[data-type='habits'] .habit-dot.on {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, #ffffff 40%, transparent);
+}
+
+/* Embed — a browser window with traffic lights. */
+.widget[data-type='iframe'] .iframe-frame {
+  position: relative;
+  padding-top: 22px;
+}
+
+.widget[data-type='iframe'] .iframe-frame::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 22px;
+  border-bottom: 1px solid var(--border);
+  background: radial-gradient(circle at 13px 50%, #ff5f56 3px, transparent 3.6px),
+    radial-gradient(circle at 27px 50%, #ffbd2e 3px, transparent 3.6px),
+    radial-gradient(circle at 41px 50%, #27c93f 3px, transparent 3.6px), var(--surface-3);
+}
+
+/* Lit-page tint for paper widgets in light mode. */
+[data-theme='light'] .widget[data-type='notes'],
+[data-theme='light'] .widget[data-type='tasks'],
+[data-theme='light'] .widget[data-type='quote'],
+[data-theme='light'] .widget[data-type='links'],
+[data-theme='light'] .widget[data-type='stats'],
+[data-theme='light'] .widget[data-type='picker'],
+[data-theme='light'] .widget[data-type='todoist'],
+[data-theme='light'] .widget[data-type='flashcards'] {
+  background: linear-gradient(180deg, #ffffff, #fdfbf6);
 }
