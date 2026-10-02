@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ICONS,
+  BreathIcon,
   CalendarIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   ClockIcon,
   ChartIcon,
   CheckSquareIcon,
+  CommandIcon,
   CopyIcon,
+  DiceIcon,
   DropletIcon,
   ExternalIcon,
   FitIcon,
+  FlashcardIcon,
   HeadphonesIcon,
   LinkIcon,
+  LockIcon,
   MinusIcon,
   MoonIcon,
   NoteIcon,
@@ -27,6 +34,7 @@ import {
   TimerIcon,
   TodoistIcon,
   TrashIcon,
+  UnlockIcon,
   XIcon,
 } from './icons';
 
@@ -52,6 +60,16 @@ const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 3;
 const DEFAULT_VIEW = { scale: 1, x: 60, y: 60 };
 const TODOIST_API = 'https://api.todoist.com/api/v1';
+const BREAK_SECONDS = 5 * 60;
+const BREATH_CYCLE = 16000;
+
+const breathPhase = (elapsed) => {
+  const p = ((elapsed % BREATH_CYCLE) + BREATH_CYCLE) % BREATH_CYCLE;
+  if (p < 4000) return 'Inhale';
+  if (p < 8000) return 'Hold';
+  if (p < 12000) return 'Exhale';
+  return 'Hold';
+};
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 const uid = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -137,6 +155,9 @@ const WIDGET_CATALOG = [
   { key: 'sound', label: 'Sound', icon: HeadphonesIcon, w: 290, h: 230 },
   { key: 'stats', label: 'Today', icon: ChartIcon, w: 300, h: 220 },
   { key: 'sticky', label: 'Post-it', icon: StickyIcon, w: 250, h: 250 },
+  { key: 'flashcards', label: 'Flashcards', icon: FlashcardIcon, w: 300, h: 250 },
+  { key: 'picker', label: 'Picker', icon: DiceIcon, w: 260, h: 220 },
+  { key: 'breath', label: 'Breathe', icon: BreathIcon, w: 240, h: 270 },
   { key: 'todoist', label: 'Todoist', icon: TodoistIcon, w: 340, h: 320 },
 ];
 
@@ -156,9 +177,57 @@ const createWidget = (type, overrides = {}) => {
     w: meta ? meta.w : 260,
     h: meta ? meta.h : 200,
     ...(type === 'sticky' ? { text: '', color: STICKY_COLORS[0] } : {}),
+    ...(type === 'flashcards' ? { deck: '', cardIndex: 0, flipped: false, editing: false } : {}),
+    ...(type === 'picker' ? { names: '', editing: false } : {}),
     ...overrides,
   };
 };
+
+/* Starter boards for students and teachers. Positions use catalog sizes. */
+const TEMPLATES = [
+  {
+    key: 'deep-work',
+    label: 'Deep Work',
+    blurb: 'Timer, tasks, notes and today',
+    icon: TimerIcon,
+    items: [['timer', 0, 0], ['tasks', 300, 0], ['notes', 0, 240], ['stats', 340, 290]],
+  },
+  {
+    key: 'study',
+    label: 'Study Session',
+    blurb: 'Focus, flashcards and ambience',
+    icon: FlashcardIcon,
+    items: [['timer', 0, 0], ['flashcards', 300, 0], ['sticky', 0, 240], ['sound', 640, 0]],
+  },
+  {
+    key: 'class-planner',
+    label: 'Class Planner',
+    blurb: 'Plan lessons and deadlines',
+    icon: CalendarIcon,
+    items: [['tasks', 0, 0], ['countdown', 360, 0], ['notes', 0, 290], ['links', 380, 240], ['clock', 720, 0]],
+  },
+  {
+    key: 'morning',
+    label: 'Morning Routine',
+    blurb: 'Start the day on purpose',
+    icon: DropletIcon,
+    items: [['water', 0, 0], ['habits', 290, 0], ['quote', 0, 255], ['clock', 400, 290]],
+  },
+  {
+    key: 'lesson',
+    label: 'Lesson Board',
+    blurb: 'Countdown, board notes, and a picker',
+    icon: SproutIcon,
+    items: [['countdown', 0, 0], ['notes', 320, 0], ['picker', 0, 240], ['breath', 300, 240], ['clock', 720, 0]],
+  },
+  {
+    key: 'blank',
+    label: 'Blank canvas',
+    blurb: 'Start from nothing',
+    icon: PlusIcon,
+    items: [],
+  },
+];
 
 const defaultSettings = {
   theme: 'dark',
@@ -170,6 +239,9 @@ const defaultSettings = {
   scaleContent: true,
   zoomHud: true,
   hiddenPalette: [],
+  chime: true,
+  autoNext: false,
+  reduceMotion: false,
 };
 const GRID_SIZES = [16, 24, 32];
 const ACCENT_PRESETS = ['#0070f3', '#ffffff', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
@@ -254,7 +326,7 @@ const dueLabel = (due) => {
 
 const CORNERS = ['nw', 'ne', 'sw', 'se'];
 
-function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, onDuplicate, onDragStart, onResizeStart, onMobileResizeStart, children }) {
+function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, onDuplicate, onToggleLock, onDragStart, onResizeStart, onMobileResizeStart, children }) {
   const Icon = ICONS[widget.type] || TimerIcon;
   const meta = CATALOG_MAP[widget.type];
   const baseW = meta ? meta.w : widget.w;
@@ -301,7 +373,8 @@ function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, 
 
   return (
     <section
-      className={`widget ${mobile ? 'widget--flow' : ''} ${focused ? 'is-focused' : ''}`}
+      className={`widget ${mobile ? 'widget--flow' : ''} ${focused ? 'is-focused' : ''} ${widget.locked ? 'is-locked' : ''}`}
+      id={`widget-${widget.id}`}
       style={cardStyle}
       onMouseDown={onFocus}
       onTouchStart={onFocus}
@@ -317,12 +390,20 @@ function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, 
           {meta ? meta.label : widget.title}
         </button>
       )}
-      <header className={`widget-header ${mobile ? 'static' : ''}`} onPointerDown={mobile ? undefined : onDragStart}>
+      <header className={`widget-header ${mobile ? 'static' : ''}`} onPointerDown={mobile || widget.locked ? undefined : onDragStart}>
         <span className="widget-title">
           <Icon size={15} />
           {widget.title}
         </span>
         <div className="widget-actions" onPointerDown={(event) => event.stopPropagation()}>
+          <button
+            type="button"
+            className={widget.locked ? 'active' : ''}
+            onClick={onToggleLock}
+            aria-label={`${widget.locked ? 'Unlock' : 'Lock'} ${widget.title}`}
+          >
+            {widget.locked ? <LockIcon size={14} /> : <UnlockIcon size={14} />}
+          </button>
           <button type="button" onClick={onDuplicate} aria-label={`Duplicate ${widget.title}`}>
             <CopyIcon size={14} />
           </button>
@@ -335,6 +416,7 @@ function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, 
         <div className="widget-scale">{children}</div>
       </div>
       {!mobile &&
+        !widget.locked &&
         CORNERS.map((corner) => (
           <span
             key={corner}
@@ -343,7 +425,7 @@ function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, 
             aria-hidden="true"
           />
         ))}
-      {mobile && (
+      {mobile && !widget.locked && (
         <div className="widget-resize" onPointerDown={onMobileResizeStart} role="separator" aria-label="Resize widget">
           <span className="widget-resize-grip" aria-hidden="true" />
         </div>
@@ -371,7 +453,8 @@ export default function App() {
     label: 'Next milestone',
     target: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
   });
-  const [sound, setSound] = useLocalStorageState(KEYS.sound, { playing: false, type: 'brown', volume: 0.35 });
+  const [sound, setSound] = useLocalStorageState(KEYS.sound, { type: 'brown', volume: 0.35 });
+  const [soundPlaying, setSoundPlaying] = useState(false);
   const [stats, setStats] = useLocalStorageState(KEYS.stats, { day: todayKey(), sessions: 0, focusMinutes: 0 });
   const [todoistToken, setTodoistToken] = useLocalStorageState(KEYS.todoist, '');
   const [todoist, setTodoist] = useState({ tasks: [], projects: [], status: 'idle', error: '' });
@@ -386,14 +469,19 @@ export default function App() {
   const [linkDraft, setLinkDraft] = useState({ label: '', url: '' });
   const [quoteIndex, setQuoteIndex] = useState(() => Math.floor(Math.random() * QUOTES.length));
 
-  const [timer, setTimer] = useState({ running: false, remaining: 25 * 60, preset: 25 * 60 });
-  const [stopwatch, setStopwatch] = useState({ running: false, elapsed: 0 });
-  const [pandora, setPandora] = useState({ running: false, remaining: 20 * 60, preset: 20 * 60 });
+  const [timer, setTimer] = useState({ running: false, remaining: 25 * 60, preset: 25 * 60, mode: 'focus', endAt: 0 });
+  const [stopwatch, setStopwatch] = useState({ running: false, elapsed: 0, startedAt: 0, base: 0 });
+  const [pandora, setPandora] = useState({ running: false, remaining: 20 * 60, preset: 20 * 60, endAt: 0 });
+  const [breath, setBreath] = useState({ running: false, startedAt: 0 });
+  const [pickerState, setPickerState] = useState({});
 
   const [now, setNow] = useState(() => Date.now());
   const [view, setView] = useState(DEFAULT_VIEW);
   const [focusedId, setFocusedId] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState('');
+  const [paletteIndex, setPaletteIndex] = useState(0);
 
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== 'undefined' && window.innerWidth < 820,
@@ -401,6 +489,43 @@ export default function App() {
 
   const audioRef = useRef({ ctx: null, gain: null, source: null, filter: null });
   const volumeRef = useRef(sound.volume);
+
+  // A short two-note chime, reusing the ambient audio graph.
+  const playChime = useCallback(
+    (kind) => {
+      if (!prefs.chime) return;
+      const audio = audioRef.current;
+      if (!audio.ctx) {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        audio.ctx = new Ctx();
+        audio.gain = audio.ctx.createGain();
+        audio.filter = audio.ctx.createBiquadFilter();
+        audio.filter.type = 'lowpass';
+        audio.filter.connect(audio.gain);
+        audio.gain.connect(audio.ctx.destination);
+      }
+      const ctx = audio.ctx;
+      if (ctx.state === 'suspended') ctx.resume();
+      const notes = kind === 'break' ? [659, 523] : [784, 1047];
+      const start = ctx.currentTime + 0.02;
+      notes.forEach((frequency, index) => {
+        const oscillator = ctx.createOscillator();
+        const gain = ctx.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.value = frequency;
+        const at = start + index * 0.2;
+        gain.gain.setValueAtTime(0.0001, at);
+        gain.gain.exponentialRampToValueAtTime(0.26, at + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.4);
+        oscillator.connect(gain);
+        gain.connect(ctx.destination);
+        oscillator.start(at);
+        oscillator.stop(at + 0.45);
+      });
+    },
+    [prefs.chime],
+  );
 
   /* --- responsive --- */
   useEffect(() => {
@@ -410,33 +535,62 @@ export default function App() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  /* --- master tick --- */
+  /* --- master tick (timers derive from timestamps so background tabs stay accurate) --- */
   useEffect(() => {
-    const interval = setInterval(() => {
-      setNow(Date.now());
-      setTimer((current) => (current.running ? { ...current, remaining: Math.max(0, current.remaining - 1) } : current));
-      setStopwatch((current) => (current.running ? { ...current, elapsed: current.elapsed + 1 } : current));
-      setPandora((current) => (current.running ? { ...current, remaining: Math.max(0, current.remaining - 1) } : current));
-    }, 1000);
+    const tick = () => {
+      const stamp = Date.now();
+      setNow(stamp);
+      setTimer((current) => {
+        if (!current.running || !current.endAt) return current;
+        const remaining = Math.max(0, Math.ceil((current.endAt - stamp) / 1000));
+        return remaining === current.remaining ? current : { ...current, remaining };
+      });
+      setPandora((current) => {
+        if (!current.running || !current.endAt) return current;
+        const remaining = Math.max(0, Math.ceil((current.endAt - stamp) / 1000));
+        return remaining === current.remaining ? current : { ...current, remaining };
+      });
+      setStopwatch((current) => {
+        if (!current.running || !current.startedAt) return current;
+        const elapsed = Math.floor((stamp - current.startedAt) / 1000) + current.base;
+        return elapsed === current.elapsed ? current : { ...current, elapsed };
+      });
+    };
+    const interval = setInterval(tick, 500);
     return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
-    if (timer.running && timer.remaining === 0) {
-      setTimer((current) => ({ ...current, running: false }));
+    if (!timer.running || timer.remaining > 0) return;
+    playChime(timer.mode);
+    if (timer.mode === 'focus') {
       setStats((current) => ({
         day: todayKey(),
         sessions: (current.day === todayKey() ? current.sessions : 0) + 1,
         focusMinutes: (current.day === todayKey() ? current.focusMinutes : 0) + Math.round(timer.preset / 60),
       }));
     }
-  }, [timer, setStats]);
+    if (prefs.autoNext) {
+      const nextMode = timer.mode === 'focus' ? 'break' : 'focus';
+      const nextRemaining = nextMode === 'break' ? BREAK_SECONDS : timer.preset;
+      setTimer({
+        running: true,
+        remaining: nextRemaining,
+        preset: timer.preset,
+        mode: nextMode,
+        endAt: Date.now() + nextRemaining * 1000,
+      });
+    } else {
+      setTimer((current) => ({ ...current, running: false, endAt: 0 }));
+    }
+  }, [timer, prefs.autoNext, playChime, setStats]);
 
   useEffect(() => {
     if (pandora.running && pandora.remaining === 0) {
-      setPandora((current) => ({ ...current, running: false }));
+      playChime('break');
+      setPandora((current) => ({ ...current, running: false, endAt: 0 }));
     }
-  }, [pandora]);
+  }, [pandora, playChime]);
 
   useEffect(() => {
     if (stats.day !== todayKey()) {
@@ -510,10 +664,10 @@ export default function App() {
   }, [stopSound]);
 
   useEffect(() => {
-    if (sound.playing) startSound(sound.type);
+    if (soundPlaying) startSound(sound.type);
     else stopSound();
     return () => stopSound();
-  }, [sound.playing, sound.type, startSound, stopSound]);
+  }, [soundPlaying, sound.type, startSound, stopSound]);
 
   useEffect(() => {
     volumeRef.current = sound.volume;
@@ -723,9 +877,13 @@ export default function App() {
     setWidgets((current) => current.map((widget) => (widget.id === id ? { ...widget, ...changes } : widget)));
   }, [setWidgets]);
 
+  const toggleLock = useCallback((id) => {
+    setWidgets((current) => current.map((widget) => (widget.id === id ? { ...widget, locked: !widget.locked } : widget)));
+  }, [setWidgets]);
+
   const startDrag = useCallback((event, widgetId) => {
     const widget = widgets.find((item) => item.id === widgetId);
-    if (!widget) return;
+    if (!widget || widget.locked) return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     const startX = event.clientX;
     const startY = event.clientY;
@@ -756,7 +914,7 @@ export default function App() {
     event.stopPropagation();
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     const widget = widgets.find((item) => item.id === widgetId);
-    if (!widget) return;
+    if (!widget || widget.locked) return;
     const startX = event.clientX;
     const startY = event.clientY;
     const origin = { x: widget.x, y: widget.y, w: widget.w, h: widget.h };
@@ -800,7 +958,7 @@ export default function App() {
     event.stopPropagation();
     if (event.cancelable) event.preventDefault();
     const widget = widgets.find((item) => item.id === widgetId);
-    if (!widget) return;
+    if (!widget || widget.locked) return;
     const section = event.currentTarget.closest('.widget');
     const startY = event.clientY;
     const startH = section ? section.getBoundingClientRect().height : widget.mh || 240;
@@ -876,48 +1034,269 @@ export default function App() {
     });
   };
 
+  /* --- timers --- */
+
+  const toggleTimer = () => {
+    setTimer((current) => {
+      if (current.running) {
+        const remaining = current.endAt ? Math.max(0, Math.ceil((current.endAt - Date.now()) / 1000)) : current.remaining;
+        return { ...current, running: false, remaining, endAt: 0 };
+      }
+      const remaining = current.remaining > 0 ? current.remaining : current.mode === 'break' ? BREAK_SECONDS : current.preset;
+      return { ...current, running: true, remaining, endAt: Date.now() + remaining * 1000 };
+    });
+  };
+
+  const resetTimer = () => {
+    setTimer((current) => ({
+      ...current,
+      running: false,
+      endAt: 0,
+      remaining: current.mode === 'break' ? BREAK_SECONDS : current.preset,
+    }));
+  };
+
+  const switchTimerMode = (mode) => {
+    setTimer((current) => ({
+      ...current,
+      mode,
+      running: false,
+      endAt: 0,
+      remaining: mode === 'break' ? BREAK_SECONDS : current.preset,
+    }));
+  };
+
+  const toggleStopwatch = () => {
+    setStopwatch((current) => {
+      if (current.running) {
+        const elapsed = current.startedAt
+          ? Math.floor((Date.now() - current.startedAt) / 1000) + current.base
+          : current.elapsed;
+        return { running: false, elapsed, startedAt: 0, base: 0 };
+      }
+      return { running: true, elapsed: current.elapsed, startedAt: Date.now(), base: current.elapsed };
+    });
+  };
+
+  const resetStopwatch = () => setStopwatch({ running: false, elapsed: 0, startedAt: 0, base: 0 });
+
+  const togglePandora = () => {
+    setPandora((current) => {
+      if (current.running) {
+        const remaining = current.endAt ? Math.max(0, Math.ceil((current.endAt - Date.now()) / 1000)) : current.remaining;
+        return { ...current, running: false, remaining, endAt: 0 };
+      }
+      const remaining = current.remaining > 0 ? current.remaining : current.preset;
+      return { ...current, running: true, remaining, endAt: Date.now() + remaining * 1000 };
+    });
+  };
+
+  const resetPandora = () => setPandora((current) => ({ ...current, running: false, endAt: 0, remaining: current.preset }));
+
+  /* --- picker --- */
+
+  const pickRandom = (widget) => {
+    const names = (widget.names || '')
+      .split('\n')
+      .map((name) => name.trim())
+      .filter(Boolean);
+    if (!names.length) return;
+    setPickerState((current) => {
+      const previous = current[widget.id] || { used: [], current: '' };
+      let pool = names.filter((name) => !previous.used.includes(name));
+      let used = previous.used;
+      if (pool.length === 0) {
+        pool = names;
+        used = [];
+      }
+      const choice = pool[Math.floor(Math.random() * pool.length)];
+      return { ...current, [widget.id]: { used: [...used, choice], current: choice } };
+    });
+  };
+
+  const resetPicker = (widget) =>
+    setPickerState((current) => ({ ...current, [widget.id]: { used: [], current: '' } }));
+
+  /* --- templates & navigation --- */
+
+  const applyTemplate = useCallback(
+    (template) => {
+      setWidgets(
+        template.items.map(([type, x, y]) => {
+          const meta = CATALOG_MAP[type];
+          return createWidget(type, { x, y, w: meta ? meta.w : 260, h: meta ? meta.h : 200 });
+        }),
+      );
+      setView(DEFAULT_VIEW);
+      setPaletteOpen(false);
+      setSettingsOpen(false);
+    },
+    [setWidgets],
+  );
+
+  const focusWidget = useCallback(
+    (widget) => {
+      setFocusedId(widget.id);
+      if (isMobile) {
+        const element = typeof document !== 'undefined' ? document.getElementById(`widget-${widget.id}`) : null;
+        if (element) element.scrollIntoView({ behavior: prefs.reduceMotion ? 'auto' : 'smooth', block: 'center' });
+        return;
+      }
+      const rect = viewportRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setView((current) => ({
+        scale: current.scale,
+        x: rect.width / 2 - (widget.x + widget.w / 2) * current.scale,
+        y: rect.height / 2 - (widget.y + widget.h / 2) * current.scale,
+      }));
+    },
+    [isMobile, prefs.reduceMotion],
+  );
+
+  /* --- command palette --- */
+
+  const paletteCommands = useMemo(() => {
+    const commands = [];
+    WIDGET_CATALOG.forEach((item) => {
+      commands.push({
+        id: `add:${item.key}`,
+        group: 'Add widget',
+        label: `Add ${item.label}`,
+        icon: item.icon,
+        run: () => addWidget(item.key),
+      });
+    });
+    TEMPLATES.forEach((template) => {
+      commands.push({
+        id: `template:${template.key}`,
+        group: 'Template',
+        label: `Use template: ${template.label}`,
+        icon: template.icon,
+        run: () => applyTemplate(template),
+      });
+    });
+    visibleWidgets.forEach((widget) => {
+      commands.push({
+        id: `go:${widget.id}`,
+        group: 'Go to widget',
+        label: widget.title,
+        icon: ICONS[widget.type] || TimerIcon,
+        run: () => focusWidget(widget),
+      });
+    });
+    commands.push(
+      { id: 'action:reset', group: 'Action', label: 'Reset zoom & position', icon: FitIcon, run: resetView },
+      {
+        id: 'action:theme',
+        group: 'Action',
+        label: 'Toggle theme',
+        icon: prefs.theme === 'dark' ? SunIcon : MoonIcon,
+        run: () => setSettings((current) => ({ ...current, theme: current.theme === 'dark' ? 'light' : 'dark' })),
+      },
+      {
+        id: 'action:grid',
+        group: 'Action',
+        label: 'Toggle grid',
+        icon: ChartIcon,
+        run: () => setSettings((current) => ({ ...current, grid: !current.grid })),
+      },
+      { id: 'action:settings', group: 'Action', label: 'Open customize', icon: SlidersIcon, run: () => setSettingsOpen(true) },
+      { id: 'action:clear', group: 'Action', label: 'Clear canvas', icon: TrashIcon, run: () => setWidgets([]) },
+    );
+    const query = paletteQuery.trim().toLowerCase();
+    if (!query) return commands;
+    return commands.filter(
+      (command) => command.label.toLowerCase().includes(query) || command.group.toLowerCase().includes(query),
+    );
+  }, [paletteQuery, visibleWidgets, addWidget, applyTemplate, focusWidget, resetView, prefs.theme, setSettings, setWidgets]);
+
+  const runCommand = (command) => {
+    command.run();
+    setPaletteOpen(false);
+    setPaletteQuery('');
+    setPaletteIndex(0);
+  };
+
+  const onPaletteKeyDown = (event) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setPaletteIndex((index) => Math.min(index + 1, Math.max(0, paletteCommands.length - 1)));
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setPaletteIndex((index) => Math.max(0, index - 1));
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      const command = paletteCommands[paletteIndex];
+      if (command) runCommand(command);
+    }
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+        setPaletteQuery('');
+        setPaletteIndex(0);
+      } else if (event.key === 'Escape') {
+        setPaletteOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   /* ------------------------------------------------------------------ */
   /*  Widget bodies                                                     */
   /* ------------------------------------------------------------------ */
 
   const renderWidgetBody = (widget) => {
     switch (widget.type) {
-      case 'timer':
+      case 'timer': {
+        const onBreak = timer.mode === 'break';
         return (
           <div className="widget-body">
+            <div className={`timer-mode ${onBreak ? 'break' : 'focus'}`}>
+              {onBreak ? 'Break' : 'Focus'}
+              {prefs.autoNext ? ' · auto' : ''}
+            </div>
             <div className="big-number">{formatClock(timer.remaining)}</div>
             <div className="chip-row">
               {[15, 25, 45, 60].map((minutes) => (
                 <button
                   key={minutes}
                   type="button"
-                  className={`chip ${timer.preset === minutes * 60 ? 'active' : ''}`}
-                  onClick={() => setTimer({ running: false, remaining: minutes * 60, preset: minutes * 60 })}
+                  className={`chip ${!onBreak && timer.preset === minutes * 60 ? 'active' : ''}`}
+                  onClick={() => setTimer({ running: false, remaining: minutes * 60, preset: minutes * 60, mode: 'focus', endAt: 0 })}
                 >
                   {minutes}m
                 </button>
               ))}
             </div>
             <div className="action-row">
-              <button type="button" className="primary" onClick={() => setTimer((current) => ({ ...current, running: !current.running }))}>
+              <button type="button" className="primary" onClick={toggleTimer}>
                 {timer.running ? 'Pause' : 'Start'}
               </button>
-              <button type="button" onClick={() => setTimer({ running: false, remaining: timer.preset, preset: timer.preset })}>
+              <button type="button" onClick={resetTimer}>
                 Reset
+              </button>
+              <button type="button" onClick={() => switchTimerMode(onBreak ? 'focus' : 'break')}>
+                {onBreak ? 'Focus' : 'Break'}
               </button>
             </div>
           </div>
         );
+      }
 
       case 'stopwatch':
         return (
           <div className="widget-body">
             <div className="big-number">{formatStopwatch(stopwatch.elapsed)}</div>
             <div className="action-row">
-              <button type="button" className="primary" onClick={() => setStopwatch((current) => ({ ...current, running: !current.running }))}>
+              <button type="button" className="primary" onClick={toggleStopwatch}>
                 {stopwatch.running ? 'Pause' : 'Start'}
               </button>
-              <button type="button" onClick={() => setStopwatch({ running: false, elapsed: 0 })}>Reset</button>
+              <button type="button" onClick={resetStopwatch}>Reset</button>
             </div>
           </div>
         );
@@ -932,17 +1311,17 @@ export default function App() {
                   key={minutes}
                   type="button"
                   className={`chip ${pandora.preset === minutes * 60 ? 'active' : ''}`}
-                  onClick={() => setPandora({ running: false, remaining: minutes * 60, preset: minutes * 60 })}
+                  onClick={() => setPandora({ running: false, remaining: minutes * 60, preset: minutes * 60, endAt: 0 })}
                 >
                   {minutes}m
                 </button>
               ))}
             </div>
             <div className="action-row">
-              <button type="button" className="primary" onClick={() => setPandora((current) => ({ ...current, running: !current.running }))}>
+              <button type="button" className="primary" onClick={togglePandora}>
                 {pandora.running ? 'Pause' : 'Start'}
               </button>
-              <button type="button" onClick={() => setPandora({ running: false, remaining: pandora.preset, preset: pandora.preset })}>Reset</button>
+              <button type="button" onClick={resetPandora}>Reset</button>
             </div>
           </div>
         );
@@ -1229,13 +1608,13 @@ export default function App() {
             </div>
             <button
               type="button"
-              className={`sound-toggle ${sound.playing ? 'playing' : ''}`}
-              onClick={() => setSound((current) => ({ ...current, playing: !current.playing }))}
+              className={`sound-toggle ${soundPlaying ? 'playing' : ''}`}
+              onClick={() => setSoundPlaying((playing) => !playing)}
             >
               <span className="sound-bars" aria-hidden="true">
                 <i /><i /><i /><i />
               </span>
-              {sound.playing ? 'Pause ambience' : 'Play ambience'}
+              {soundPlaying ? 'Pause ambience' : 'Play ambience'}
             </button>
             <label className="slider-row">
               <span>Volume</span>
@@ -1300,6 +1679,161 @@ export default function App() {
                   onClick={() => updateWidget(widget.id, { color })}
                 />
               ))}
+            </div>
+          </div>
+        );
+
+      case 'flashcards': {
+        const cards = (widget.deck || '')
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => {
+            const [front, ...rest] = line.split('|');
+            return { front: (front || '').trim(), back: rest.join('|').trim() };
+          });
+        const index = Math.min(widget.cardIndex || 0, Math.max(0, cards.length - 1));
+        const card = cards[index];
+
+        if (widget.editing) {
+          return (
+            <div className="widget-body">
+              <div className="mini-heading">One card per line — “front | back”</div>
+              <textarea
+                className="deck-editor scrollable"
+                value={widget.deck || ''}
+                onChange={(event) => updateWidget(widget.id, { deck: event.target.value })}
+                placeholder={'Photosynthesis | How plants make food\n2 + 2 | 4'}
+                aria-label="Flashcard deck"
+              />
+              <div className="action-row">
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => updateWidget(widget.id, { editing: false, cardIndex: 0, flipped: false })}
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          );
+        }
+
+        if (!cards.length) {
+          return (
+            <div className="widget-body">
+              <div className="hint">No cards yet. Add a deck to study.</div>
+              <div className="action-row">
+                <button type="button" className="primary" onClick={() => updateWidget(widget.id, { editing: true })}>
+                  Add cards
+                </button>
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div className="widget-body">
+            <button
+              type="button"
+              className="flashcard"
+              onClick={() => updateWidget(widget.id, { flipped: !widget.flipped })}
+            >
+              <span className="flashcard-side">{widget.flipped ? 'Back' : 'Front'}</span>
+              <span className="flashcard-text">{widget.flipped ? card.back : card.front}</span>
+              <span className="flashcard-tap">Tap to flip</span>
+            </button>
+            <div className="flashcard-foot">
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="Previous card"
+                onClick={() => updateWidget(widget.id, { cardIndex: (index - 1 + cards.length) % cards.length, flipped: false })}
+              >
+                <ChevronLeftIcon size={15} />
+              </button>
+              <span className="flashcard-count">
+                {index + 1} / {cards.length}
+              </span>
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="Next card"
+                onClick={() => updateWidget(widget.id, { cardIndex: (index + 1) % cards.length, flipped: false })}
+              >
+                <ChevronRightIcon size={15} />
+              </button>
+              <button type="button" className="text-btn" onClick={() => updateWidget(widget.id, { editing: true })}>
+                Edit deck
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      case 'picker': {
+        const names = (widget.names || '')
+          .split('\n')
+          .map((name) => name.trim())
+          .filter(Boolean);
+        const state = pickerState[widget.id] || { used: [], current: '' };
+
+        if (widget.editing) {
+          return (
+            <div className="widget-body">
+              <div className="mini-heading">One name per line</div>
+              <textarea
+                className="deck-editor scrollable"
+                value={widget.names || ''}
+                onChange={(event) => updateWidget(widget.id, { names: event.target.value })}
+                placeholder={'Ada\nGrace\nAlan'}
+                aria-label="Picker names"
+              />
+              <div className="action-row">
+                <button type="button" className="primary" onClick={() => updateWidget(widget.id, { editing: false })}>
+                  Done
+                </button>
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div className="widget-body picker-body">
+            <div className="picker-result">{state.current || '—'}</div>
+            <div className="micro-copy">
+              {names.length ? `${state.used.length} of ${names.length} picked` : 'No names yet'}
+            </div>
+            <div className="action-row">
+              <button type="button" className="primary" onClick={() => pickRandom(widget)} disabled={!names.length}>
+                Pick
+              </button>
+              <button type="button" onClick={() => resetPicker(widget)} disabled={!state.used.length}>
+                Reset
+              </button>
+              <button type="button" onClick={() => updateWidget(widget.id, { editing: true })}>
+                Names
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      case 'breath':
+        return (
+          <div className="widget-body breath-body">
+            <div className={`breath-circle ${breath.running ? 'running' : ''}`}>
+              <span>{breath.running ? breathPhase(now - breath.startedAt) : 'Ready'}</span>
+            </div>
+            <div className="micro-copy">Box breathing · 4s each</div>
+            <div className="action-row">
+              <button
+                type="button"
+                className="primary"
+                onClick={() => setBreath((current) => (current.running ? { running: false, startedAt: 0 } : { running: true, startedAt: Date.now() }))}
+              >
+                {breath.running ? 'Stop' : 'Begin'}
+              </button>
             </div>
           </div>
         );
@@ -1461,10 +1995,46 @@ export default function App() {
     }
   };
 
+  const renderWelcome = (flow) => (
+    <div className={`canvas-welcome ${flow ? 'canvas-welcome--flow' : ''}`}>
+      <div className="welcome-copy">
+        <h2>Build your workspace</h2>
+        <p>
+          Start from a template or add any widget from the bar below. Drag widgets to move them, resize from the corners,
+          and pan the board freely.
+        </p>
+      </div>
+      <div className="template-grid">
+        {TEMPLATES.map((template) => {
+          const Icon = template.icon;
+          return (
+            <button key={template.key} type="button" className="template-card" onClick={() => applyTemplate(template)}>
+              <span className="template-icon">
+                <Icon size={16} />
+              </span>
+              <span className="template-name">{template.label}</span>
+              <span className="template-blurb">{template.blurb}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="welcome-hint">
+        Tip: press <kbd>⌘</kbd> <kbd>K</kbd> to search widgets and actions.
+      </div>
+    </div>
+  );
+
+  const activePaletteIndex = Math.min(paletteIndex, Math.max(0, paletteCommands.length - 1));
+
   const ThemeIcon = prefs.theme === 'dark' ? SunIcon : MoonIcon;
 
   return (
-    <div className="app-shell" data-theme={prefs.theme} style={{ '--accent': prefs.accent }}>
+    <div
+      className="app-shell"
+      data-theme={prefs.theme}
+      data-motion={prefs.reduceMotion ? 'reduced' : 'full'}
+      style={{ '--accent': prefs.accent }}
+    >
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true" />
@@ -1473,6 +2043,18 @@ export default function App() {
           </div>
         </div>
         <div className="topbar-actions">
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Search and commands"
+            onClick={() => {
+              setPaletteOpen(true);
+              setPaletteQuery('');
+              setPaletteIndex(0);
+            }}
+          >
+            <CommandIcon size={16} />
+          </button>
           <button
             type="button"
             className="icon-button"
@@ -1489,12 +2071,7 @@ export default function App() {
 
       {isMobile ? (
         <div className="widget-stack">
-          {visibleWidgets.length === 0 && (
-            <div className="empty-card">
-              <p>Your canvas is empty.</p>
-              <span>Pick a widget from the bar below to get started.</span>
-            </div>
-          )}
+          {visibleWidgets.length === 0 && renderWelcome(true)}
           {visibleWidgets.map((widget) => (
             <WidgetCard
               key={widget.id}
@@ -1504,6 +2081,7 @@ export default function App() {
               onFocus={() => setFocusedId(widget.id)}
               onRemove={() => removeWidget(widget.id)}
               onDuplicate={() => duplicateWidget(widget.id)}
+              onToggleLock={() => toggleLock(widget.id)}
               scaleContent={prefs.scaleContent}
               onMobileResizeStart={(event) => startMobileResize(event, widget.id)}
             >
@@ -1536,6 +2114,7 @@ export default function App() {
                 onFocus={() => setFocusedId(widget.id)}
                 onRemove={() => removeWidget(widget.id)}
                 onDuplicate={() => duplicateWidget(widget.id)}
+                onToggleLock={() => toggleLock(widget.id)}
                 onDragStart={(event) => startDrag(event, widget.id)}
                 onResizeStart={(event, corner) => startResize(event, widget.id, corner)}
               >
@@ -1544,12 +2123,7 @@ export default function App() {
             ))}
           </div>
 
-          {visibleWidgets.length === 0 && (
-            <div className="canvas-empty">
-              <p>An empty canvas.</p>
-              <span>Add a widget from the toolbar below — drag to move, resize from any corner, and pan the board by dragging.</span>
-            </div>
-          )}
+          {visibleWidgets.length === 0 && renderWelcome(false)}
 
           {prefs.zoomHud && (
             <div className="zoom-hud">
@@ -1711,6 +2285,51 @@ export default function App() {
           />
         </label>
 
+        <label className="toggle-row">
+          <span>Focus chime</span>
+          <input
+            type="checkbox"
+            checked={prefs.chime}
+            onChange={(event) => setSettings((current) => ({ ...current, chime: event.target.checked }))}
+          />
+        </label>
+
+        <label className="toggle-row">
+          <span>Auto-start next session</span>
+          <input
+            type="checkbox"
+            checked={prefs.autoNext}
+            onChange={(event) => setSettings((current) => ({ ...current, autoNext: event.target.checked }))}
+          />
+        </label>
+
+        <label className="toggle-row">
+          <span>Reduce motion</span>
+          <input
+            type="checkbox"
+            checked={prefs.reduceMotion}
+            onChange={(event) => setSettings((current) => ({ ...current, reduceMotion: event.target.checked }))}
+          />
+        </label>
+
+        <div className="field">
+          <span className="field-label">Templates</span>
+          <div className="template-grid template-grid--compact">
+            {TEMPLATES.map((template) => {
+              const Icon = template.icon;
+              return (
+                <button key={template.key} type="button" className="template-card" onClick={() => applyTemplate(template)}>
+                  <span className="template-icon">
+                    <Icon size={15} />
+                  </span>
+                  <span className="template-name">{template.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="micro-copy">Applying a template replaces the canvas.</div>
+        </div>
+
         <div className="field">
           <span className="field-label">Bottom bar widgets</span>
           <div className="palette-toggles">
@@ -1760,6 +2379,56 @@ export default function App() {
       </aside>
 
       <div className={`backdrop ${settingsOpen ? 'open' : ''}`} onClick={() => setSettingsOpen(false)} role="presentation" />
+
+      {paletteOpen && (
+        <div className="palette-overlay" onClick={() => setPaletteOpen(false)} role="presentation">
+          <div
+            className="palette-modal"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Command palette"
+          >
+            <div className="palette-search">
+              <CommandIcon size={15} />
+              <input
+                autoFocus
+                type="text"
+                value={paletteQuery}
+                onChange={(event) => {
+                  setPaletteQuery(event.target.value);
+                  setPaletteIndex(0);
+                }}
+                onKeyDown={onPaletteKeyDown}
+                placeholder="Search widgets, templates and actions…"
+                aria-label="Command palette search"
+              />
+              <button type="button" className="icon-btn" onClick={() => setPaletteOpen(false)} aria-label="Close">
+                <XIcon size={14} />
+              </button>
+            </div>
+            <div className="palette-results">
+              {paletteCommands.length === 0 && <div className="hint palette-empty-row">No matches.</div>}
+              {paletteCommands.map((command, index) => {
+                const Icon = command.icon;
+                return (
+                  <button
+                    key={command.id}
+                    type="button"
+                    className={`palette-row ${index === activePaletteIndex ? 'active' : ''}`}
+                    onMouseEnter={() => setPaletteIndex(index)}
+                    onClick={() => runCommand(command)}
+                  >
+                    <Icon size={15} />
+                    <span className="palette-row-label">{command.label}</span>
+                    <span className="palette-row-group">{command.group}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

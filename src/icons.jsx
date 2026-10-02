@@ -190,6 +190,65 @@ export const ResetIcon = (props) => (
   </Svg>
 );
 
+export const LockIcon = (props) => (
+  <Svg {...props}>
+    <rect x="4" y="10.5" width="16" height="10.5" rx="2" />
+    <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" />
+  </Svg>
+);
+
+export const UnlockIcon = (props) => (
+  <Svg {...props}>
+    <rect x="4" y="10.5" width="16" height="10.5" rx="2" />
+    <path d="M8 10.5V7a4 4 0 0 1 7.5-2" />
+  </Svg>
+);
+
+export const CommandIcon = (props) => (
+  <Svg {...props}>
+    <path d="M9 3a3 3 0 1 0 0 6h6a3 3 0 1 0 0-6 3 3 0 0 0-3 3v6a3 3 0 1 0 3 3 3 3 0 0 0-3-3H6a3 3 0 1 0 3 3V9z" />
+  </Svg>
+);
+
+export const FlashcardIcon = (props) => (
+  <Svg {...props}>
+    <rect x="3" y="6" width="15" height="11" rx="2" />
+    <path d="M6.5 20h11a2.5 2.5 0 0 0 2.5-2.5V8" />
+    <path d="M7 10.5h7" />
+    <path d="M7 13.5h4" />
+  </Svg>
+);
+
+export const DiceIcon = (props) => (
+  <Svg {...props}>
+    <rect x="3" y="3" width="18" height="18" rx="4" />
+    <circle cx="8.5" cy="8.5" r="1" />
+    <circle cx="15.5" cy="8.5" r="1" />
+    <circle cx="12" cy="12" r="1" />
+    <circle cx="8.5" cy="15.5" r="1" />
+    <circle cx="15.5" cy="15.5" r="1" />
+  </Svg>
+);
+
+export const BreathIcon = (props) => (
+  <Svg {...props}>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="12" r="4" />
+  </Svg>
+);
+
+export const ChevronLeftIcon = (props) => (
+  <Svg {...props}>
+    <path d="M15 5l-7 7 7 7" />
+  </Svg>
+);
+
+export const ChevronRightIcon = (props) => (
+  <Svg {...props}>
+    <path d="M9 5l7 7-7 7" />
+  </Svg>
+);
+
 export const StickyIcon = (props) => (
   <Svg {...props}>
     <path d="M5 3h9l6 6v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
@@ -252,4 +311,7 @@ export const ICONS = {
   stats: ChartIcon,
   todoist: TodoistIcon,
   sticky: StickyIcon,
+  flashcards: FlashcardIcon,
+  picker: DiceIcon,
+  breath: BreathIcon,
 };
