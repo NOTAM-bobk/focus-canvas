@@ -7,6 +7,7 @@ import {
   CheckSquareIcon,
   CopyIcon,
   DropletIcon,
+  ExternalIcon,
   FitIcon,
   HeadphonesIcon,
   LinkIcon,
@@ -15,6 +16,7 @@ import {
   NoteIcon,
   PlusIcon,
   QuoteIcon,
+  RefreshIcon,
   RepeatIcon,
   ResetIcon,
   SlidersIcon,
@@ -22,6 +24,7 @@ import {
   StopwatchIcon,
   SunIcon,
   TimerIcon,
+  TodoistIcon,
   TrashIcon,
   XIcon,
 } from './icons';
@@ -41,12 +44,13 @@ const KEYS = {
   countdown: 'focus-canvas-countdown-v3',
   sound: 'focus-canvas-sound-v3',
   stats: 'focus-canvas-stats-v3',
+  todoist: 'focus-canvas-todoist-v3',
 };
 
-const BOARD = { w: 3200, h: 2200 };
-const MIN_ZOOM = 0.3;
-const MAX_ZOOM = 2.5;
+const MIN_ZOOM = 0.15;
+const MAX_ZOOM = 3;
 const DEFAULT_VIEW = { scale: 1, x: 60, y: 60 };
+const TODOIST_API = 'https://api.todoist.com/api/v1';
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 const uid = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -131,6 +135,7 @@ const WIDGET_CATALOG = [
   { key: 'links', label: 'Links', icon: LinkIcon, w: 270, h: 220 },
   { key: 'sound', label: 'Sound', icon: HeadphonesIcon, w: 290, h: 230 },
   { key: 'stats', label: 'Today', icon: ChartIcon, w: 300, h: 220 },
+  { key: 'todoist', label: 'Todoist', icon: TodoistIcon, w: 340, h: 320 },
 ];
 
 const CATALOG_MAP = Object.fromEntries(WIDGET_CATALOG.map((item) => [item.key, item]));
@@ -150,7 +155,17 @@ const createWidget = (type, overrides = {}) => {
   };
 };
 
-const defaultSettings = { theme: 'dark', grid: true, accent: '#0070f3' };
+const defaultSettings = {
+  theme: 'dark',
+  accent: '#0070f3',
+  grid: true,
+  gridStyle: 'dots',
+  gridSize: 24,
+  snap: false,
+  scaleContent: true,
+  zoomHud: true,
+};
+const GRID_SIZES = [16, 24, 32];
 const ACCENT_PRESETS = ['#0070f3', '#ffffff', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
 
 const QUOTES = [
@@ -199,17 +214,50 @@ const SOUND_TYPES = [
 ];
 
 /* ------------------------------------------------------------------ */
+/*  Todoist helpers                                                   */
+/* ------------------------------------------------------------------ */
+
+const todoistList = (data) => (Array.isArray(data) ? data : data?.results ?? []);
+
+const dayDiff = (dateStr) => {
+  if (!dateStr) return null;
+  const target = new Date(`${String(dateStr).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(target.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - today.getTime()) / 86400000);
+};
+
+const dueLabel = (due) => {
+  if (!due) return null;
+  const raw = due.datetime || due.date;
+  if (!raw) return due.string || null;
+  const diff = dayDiff(raw);
+  if (diff === null) return due.string || null;
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Tomorrow';
+  if (diff === -1) return 'Yesterday';
+  if (diff < 0) return `${Math.abs(diff)}d overdue`;
+  if (diff < 7) return new Date(raw).toLocaleDateString([], { weekday: 'long' });
+  return new Date(raw).toLocaleDateString([], { month: 'short', day: 'numeric' });
+};
+
+/* ------------------------------------------------------------------ */
 /*  Widget card                                                       */
 /* ------------------------------------------------------------------ */
 
 const CORNERS = ['nw', 'ne', 'sw', 'se'];
 
-function WidgetCard({ widget, focused, mobile, onFocus, onRemove, onDuplicate, onDragStart, onResizeStart, children }) {
+function WidgetCard({ widget, focused, mobile, scaleContent, onFocus, onRemove, onDuplicate, onDragStart, onResizeStart, children }) {
   const Icon = ICONS[widget.type] || TimerIcon;
+  const meta = CATALOG_MAP[widget.type];
+  const baseW = meta ? meta.w : widget.w;
+  const baseH = meta ? meta.h : widget.h;
+  const ws = !mobile && scaleContent ? Math.min(widget.w / baseW, widget.h / baseH) : 1;
   return (
     <section
       className={`widget ${mobile ? 'widget--flow' : ''} ${focused ? 'is-focused' : ''}`}
-      style={mobile ? undefined : { left: `${widget.x}px`, top: `${widget.y}px`, width: `${widget.w}px`, height: `${widget.h}px` }}
+      style={mobile ? undefined : { left: `${widget.x}px`, top: `${widget.y}px`, width: `${widget.w}px`, height: `${widget.h}px`, '--ws': `${ws}` }}
       onMouseDown={onFocus}
       onTouchStart={onFocus}
     >
@@ -227,7 +275,9 @@ function WidgetCard({ widget, focused, mobile, onFocus, onRemove, onDuplicate, o
           </button>
         </div>
       </header>
-      <div className="widget-content">{children}</div>
+      <div className="widget-content">
+        <div className="widget-scale">{children}</div>
+      </div>
       {!mobile &&
         CORNERS.map((corner) => (
           <span
@@ -249,6 +299,7 @@ export default function App() {
   const viewportRef = useRef(null);
 
   const [settings, setSettings] = useLocalStorageState(KEYS.settings, defaultSettings);
+  const prefs = useMemo(() => ({ ...defaultSettings, ...settings }), [settings]);
   const [widgets, setWidgets] = useLocalStorageState(KEYS.widgets, []);
   const [notesText, setNotesText] = useLocalStorageState(KEYS.notes, '');
   const [tasks, setTasks] = useLocalStorageState(KEYS.tasks, DEFAULT_TASKS);
@@ -261,6 +312,13 @@ export default function App() {
   });
   const [sound, setSound] = useLocalStorageState(KEYS.sound, { playing: false, type: 'brown', volume: 0.35 });
   const [stats, setStats] = useLocalStorageState(KEYS.stats, { day: todayKey(), sessions: 0, focusMinutes: 0 });
+  const [todoistToken, setTodoistToken] = useLocalStorageState(KEYS.todoist, '');
+  const [todoist, setTodoist] = useState({ tasks: [], projects: [], status: 'idle', error: '' });
+  const [todoistFilter, setTodoistFilter] = useState('today');
+  const [todoistDraft, setTodoistDraft] = useState('');
+  const [todoistTokenDraft, setTodoistTokenDraft] = useState('');
+  const [todoistEditing, setTodoistEditing] = useState(false);
+  const [todoistBusy, setTodoistBusy] = useState(null);
 
   const [newTask, setNewTask] = useState('');
   const [newHabit, setNewHabit] = useState('');
@@ -403,6 +461,117 @@ export default function App() {
   }, [sound.volume]);
 
   /* ------------------------------------------------------------------ */
+  /*  Todoist                                                           */
+  /* ------------------------------------------------------------------ */
+
+  const todoistFetch = useCallback(
+    async (path, options = {}) => {
+      const response = await fetch(`${TODOIST_API}${path}`, {
+        ...options,
+        headers: {
+          Authorization: `Bearer ${todoistToken}`,
+          'Content-Type': 'application/json',
+          ...(options.headers || {}),
+        },
+      });
+      if (!response.ok) {
+        let message = `Todoist request failed (${response.status}).`;
+        if (response.status === 401 || response.status === 403) message = 'Invalid or expired API token.';
+        else if (response.status === 429) message = 'Rate limited — try again in a moment.';
+        throw new Error(message);
+      }
+      if (response.status === 204) return null;
+      return response.json();
+    },
+    [todoistToken],
+  );
+
+  const loadTodoist = useCallback(async () => {
+    if (!todoistToken) {
+      setTodoist({ tasks: [], projects: [], status: 'idle', error: '' });
+      return;
+    }
+    setTodoist((current) => ({ ...current, status: 'loading', error: '' }));
+    try {
+      const [tasksData, projectsData] = await Promise.all([
+        todoistFetch('/tasks'),
+        todoistFetch('/projects'),
+      ]);
+      setTodoist({ tasks: todoistList(tasksData), projects: todoistList(projectsData), status: 'ready', error: '' });
+    } catch (error) {
+      const message =
+        error instanceof TypeError
+          ? 'Network error — check your connection and try again.'
+          : error.message || 'Could not reach Todoist.';
+      setTodoist((current) => ({ ...current, status: 'error', error: message }));
+    }
+  }, [todoistFetch, todoistToken]);
+
+  useEffect(() => {
+    loadTodoist();
+  }, [loadTodoist]);
+
+  const todoistFiltered = useMemo(() => {
+    const tasks = todoist.tasks;
+    const diffOf = (task) => (task.due ? dayDiff(task.due.datetime || task.due.date) : null);
+    if (todoistFilter === 'all') return tasks;
+    if (todoistFilter === 'priority') return tasks.filter((task) => (task.priority || 1) >= 3).sort((a, b) => (b.priority || 1) - (a.priority || 1));
+    if (todoistFilter === 'today') {
+      return tasks
+        .filter((task) => {
+          const diff = diffOf(task);
+          return diff !== null && diff <= 0;
+        })
+        .sort((a, b) => diffOf(a) - diffOf(b) || (b.priority || 1) - (a.priority || 1));
+    }
+    return tasks
+      .filter((task) => {
+        const diff = diffOf(task);
+        return diff !== null && diff > 0 && diff <= 7;
+      })
+      .sort((a, b) => diffOf(a) - diffOf(b));
+  }, [todoist.tasks, todoistFilter]);
+
+  const completeTodoistTask = useCallback(
+    async (task) => {
+      setTodoistBusy(task.id);
+      try {
+        await todoistFetch(`/tasks/${task.id}/close`, { method: 'POST' });
+        setTodoist((current) => ({ ...current, tasks: current.tasks.filter((item) => item.id !== task.id), error: '' }));
+      } catch (error) {
+        setTodoist((current) => ({ ...current, error: error.message }));
+      } finally {
+        setTodoistBusy(null);
+      }
+    },
+    [todoistFetch],
+  );
+
+  const addTodoistTask = async (event) => {
+    event.preventDefault();
+    const content = todoistDraft.trim();
+    if (!content) return;
+    try {
+      const created = await todoistFetch('/tasks', { method: 'POST', body: JSON.stringify({ content }) });
+      if (created && created.id) setTodoist((current) => ({ ...current, tasks: [created, ...current.tasks], error: '' }));
+      setTodoistDraft('');
+    } catch (error) {
+      setTodoist((current) => ({ ...current, error: error.message }));
+    }
+  };
+
+  const saveTodoistToken = (event) => {
+    event.preventDefault();
+    const token = todoistTokenDraft.trim();
+    if (!token) return;
+    setTodoistToken(token);
+    setTodoistTokenDraft('');
+    setTodoistEditing(false);
+  };
+
+  const projectName = (id) => todoist.projects.find((project) => project.id === id)?.name || '';
+
+  /* ------------------------------------------------------------------ */
   /*  Zoom & pan                                                        */
   /* ------------------------------------------------------------------ */
 
@@ -474,13 +643,7 @@ export default function App() {
     const duplicates = widgets.filter((widget) => widget.type === type).length;
     const boardX = (vw / 2 - view.x) / view.scale - meta.w / 2 + duplicates * 28;
     const boardY = (vh / 2 - view.y) / view.scale - meta.h / 2 + duplicates * 28;
-    setWidgets((current) => [
-      ...current,
-      createWidget(type, {
-        x: clamp(boardX, 0, BOARD.w - meta.w),
-        y: clamp(boardY, 0, BOARD.h - meta.h),
-      }),
-    ]);
+    setWidgets((current) => [...current, createWidget(type, { x: boardX, y: boardY })]);
   }, [setWidgets, view, widgets]);
 
   const removeWidget = useCallback((id) => {
@@ -491,10 +654,7 @@ export default function App() {
     setWidgets((current) => {
       const source = current.find((widget) => widget.id === id);
       if (!source) return current;
-      return [
-        ...current,
-        { ...source, id: uid(source.type), x: clamp(source.x + 32, 0, BOARD.w - source.w), y: clamp(source.y + 32, 0, BOARD.h - source.h) },
-      ];
+      return [...current, { ...source, id: uid(source.type), x: source.x + 32, y: source.y + 32 }];
     });
   }, [setWidgets]);
 
@@ -511,12 +671,17 @@ export default function App() {
     const originX = widget.x;
     const originY = widget.y;
     const scale = view.scale;
+    const snap = prefs.snap;
+    const step = prefs.gridSize;
 
     const move = (moveEvent) => {
-      updateWidget(widgetId, {
-        x: clamp(originX + (moveEvent.clientX - startX) / scale, 0, BOARD.w - widget.w),
-        y: clamp(originY + (moveEvent.clientY - startY) / scale, 0, BOARD.h - widget.h),
-      });
+      let nextX = originX + (moveEvent.clientX - startX) / scale;
+      let nextY = originY + (moveEvent.clientY - startY) / scale;
+      if (snap) {
+        nextX = Math.round(nextX / step) * step;
+        nextY = Math.round(nextY / step) * step;
+      }
+      updateWidget(widgetId, { x: nextX, y: nextY });
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
@@ -524,7 +689,7 @@ export default function App() {
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
-  }, [widgets, view.scale, updateWidget]);
+  }, [widgets, view.scale, updateWidget, prefs.snap, prefs.gridSize]);
 
   const startResize = useCallback((event, widgetId, corner) => {
     event.stopPropagation();
@@ -535,22 +700,30 @@ export default function App() {
     const startY = event.clientY;
     const origin = { x: widget.x, y: widget.y, w: widget.w, h: widget.h };
     const scale = view.scale;
-    const MIN_W = 200;
-    const MIN_H = 140;
+    const snap = prefs.snap;
+    const step = prefs.gridSize;
+    const MIN_W = 180;
+    const MIN_H = 120;
 
     const move = (moveEvent) => {
       const dx = (moveEvent.clientX - startX) / scale;
       const dy = (moveEvent.clientY - startY) / scale;
       let { x, y, w, h } = origin;
-      if (corner.includes('e')) w = clamp(origin.w + dx, MIN_W, BOARD.w - origin.x);
-      if (corner.includes('s')) h = clamp(origin.h + dy, MIN_H, BOARD.h - origin.y);
+      if (corner.includes('e')) w = Math.max(MIN_W, origin.w + dx);
+      if (corner.includes('s')) h = Math.max(MIN_H, origin.h + dy);
       if (corner.includes('w')) {
-        w = clamp(origin.w - dx, MIN_W, origin.x + origin.w);
+        w = Math.max(MIN_W, origin.w - dx);
         x = origin.x + origin.w - w;
       }
       if (corner.includes('n')) {
-        h = clamp(origin.h - dy, MIN_H, origin.y + origin.h);
+        h = Math.max(MIN_H, origin.h - dy);
         y = origin.y + origin.h - h;
+      }
+      if (snap) {
+        w = Math.max(MIN_W, Math.round(w / step) * step);
+        h = Math.max(MIN_H, Math.round(h / step) * step);
+        if (corner.includes('w')) x = origin.x + origin.w - w;
+        if (corner.includes('n')) y = origin.y + origin.h - h;
       }
       updateWidget(widgetId, { x, y, w, h });
     };
@@ -560,7 +733,7 @@ export default function App() {
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
-  }, [widgets, view.scale, updateWidget]);
+  }, [widgets, view.scale, updateWidget, prefs.snap, prefs.gridSize]);
 
   /* ------------------------------------------------------------------ */
   /*  Data helpers                                                      */
@@ -1012,21 +1185,172 @@ export default function App() {
         );
       }
 
+      case 'todoist': {
+        if (!todoistToken || todoistEditing) {
+          return (
+            <div className="widget-body todoist-body">
+              <div className="todoist-intro">
+                <strong>Connect Todoist</strong>
+                <span>Paste your personal API token. It is stored only in this browser and never leaves it.</span>
+              </div>
+              <form className="field-grid" onSubmit={saveTodoistToken}>
+                <input
+                  type="password"
+                  value={todoistTokenDraft}
+                  onChange={(event) => setTodoistTokenDraft(event.target.value)}
+                  placeholder="Paste API token…"
+                  aria-label="Todoist API token"
+                  autoComplete="off"
+                />
+                <div className="todoist-setup-actions">
+                  <button type="submit" className="primary" disabled={!todoistTokenDraft.trim()}>
+                    Save token
+                  </button>
+                  {todoistToken && (
+                    <button type="button" onClick={() => setTodoistEditing(false)}>
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </form>
+              <a
+                className="todoist-help"
+                href="https://todoist.com/app/settings/integrations/developer"
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                <ExternalIcon size={13} /> Todoist Settings → Integrations → Developer
+              </a>
+              {todoistToken && (
+                <button
+                  type="button"
+                  className="text-btn"
+                  onClick={() => {
+                    setTodoistToken('');
+                    setTodoistEditing(false);
+                  }}
+                >
+                  Remove saved token
+                </button>
+              )}
+              {todoist.error && <div className="todoist-error">{todoist.error}</div>}
+            </div>
+          );
+        }
+
+        const loading = todoist.status === 'loading';
+        return (
+          <div className="widget-body todoist-body">
+            <div className="todoist-head">
+              <div className="todoist-counts">
+                <strong>{todoist.tasks.length}</strong>
+                <span>open {todoist.tasks.length === 1 ? 'task' : 'tasks'}</span>
+              </div>
+              <div className="todoist-head-actions">
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label="Refresh Todoist"
+                  onClick={loadTodoist}
+                  disabled={loading}
+                >
+                  <RefreshIcon size={14} />
+                </button>
+                <button type="button" className="icon-btn" aria-label="Edit Todoist token" onClick={() => setTodoistEditing(true)}>
+                  <SlidersIcon size={14} />
+                </button>
+              </div>
+            </div>
+
+            <div className="chip-row todoist-filters">
+              {[
+                { key: 'today', label: 'Today' },
+                { key: 'upcoming', label: 'Upcoming' },
+                { key: 'priority', label: 'Priority' },
+                { key: 'all', label: 'All' },
+              ].map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`chip ${todoistFilter === item.key ? 'active' : ''}`}
+                  onClick={() => setTodoistFilter(item.key)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="todoist-list scrollable">
+              {loading && todoist.tasks.length === 0 && <div className="hint">Syncing with Todoist…</div>}
+              {todoist.status === 'error' && <div className="todoist-error">{todoist.error}</div>}
+              {!loading && todoist.status !== 'error' && todoistFiltered.length === 0 && (
+                <div className="hint">
+                  {todoistFilter === 'today' ? 'Nothing due today — clear skies.' : 'No tasks in this view.'}
+                </div>
+              )}
+              {todoistFiltered.map((task) => {
+                const diff = task.due ? dayDiff(task.due.datetime || task.due.date) : null;
+                const due = dueLabel(task.due);
+                const project = projectName(task.project_id);
+                const priority = task.priority || 1;
+                return (
+                  <div className={`todoist-item ${todoistBusy === task.id ? 'busy' : ''}`} key={task.id}>
+                    <button
+                      type="button"
+                      className="todoist-check"
+                      aria-label={`Complete ${task.content}`}
+                      onClick={() => completeTodoistTask(task)}
+                      disabled={todoistBusy === task.id}
+                    >
+                      <CheckSquareIcon size={15} />
+                    </button>
+                    <div className="todoist-main">
+                      <span className="todoist-text">{task.content}</span>
+                      <div className="todoist-meta">
+                        <span className={`prio prio-${priority}`} title={`Priority ${5 - priority}`} />
+                        {due && (
+                          <span className={`todoist-due ${diff !== null && diff < 0 ? 'overdue' : diff === 0 ? 'today' : ''}`}>
+                            {due}
+                          </span>
+                        )}
+                        {project && <span className="todoist-proj">{project}</span>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <form className="inline-form" onSubmit={addTodoistTask}>
+              <input
+                type="text"
+                value={todoistDraft}
+                onChange={(event) => setTodoistDraft(event.target.value)}
+                placeholder="Add a task…"
+                aria-label="New Todoist task"
+              />
+              <button type="submit" className="primary" disabled={!todoistDraft.trim()}>
+                <PlusIcon size={15} />
+              </button>
+            </form>
+          </div>
+        );
+      }
+
       default:
         return <div className="hint">Unknown widget</div>;
     }
   };
 
-  const ThemeIcon = settings.theme === 'dark' ? SunIcon : MoonIcon;
+  const ThemeIcon = prefs.theme === 'dark' ? SunIcon : MoonIcon;
 
   return (
-    <div className="app-shell" data-theme={settings.theme} style={{ '--accent': settings.accent }}>
+    <div className="app-shell" data-theme={prefs.theme} style={{ '--accent': prefs.accent }}>
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true" />
           <div>
             <span className="brand-name">Focus Canvas</span>
-            <span className="brand-sub">{visibleWidgets.length} widgets</span>
           </div>
         </div>
         <div className="topbar-actions">
@@ -1061,22 +1385,34 @@ export default function App() {
               onFocus={() => setFocusedId(widget.id)}
               onRemove={() => removeWidget(widget.id)}
               onDuplicate={() => duplicateWidget(widget.id)}
+              scaleContent={prefs.scaleContent}
             >
               {renderWidgetBody(widget)}
             </WidgetCard>
           ))}
         </div>
       ) : (
-        <div className="canvas-viewport" ref={viewportRef} onPointerDown={startPan}>
-          <div
-            className={`board ${settings.grid ? 'grid' : ''}`}
-            style={{ width: `${BOARD.w}px`, height: `${BOARD.h}px`, transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
-          >
+        <div
+          className="canvas-viewport"
+          ref={viewportRef}
+          onPointerDown={startPan}
+          style={{
+            backgroundImage: prefs.grid
+              ? prefs.gridStyle === 'lines'
+                ? 'linear-gradient(var(--dot) 1px, transparent 1px), linear-gradient(90deg, var(--dot) 1px, transparent 1px)'
+                : 'radial-gradient(circle, var(--dot) 1.3px, transparent 1.3px)'
+              : 'none',
+            backgroundSize: `${prefs.gridSize * view.scale}px ${prefs.gridSize * view.scale}px`,
+            backgroundPosition: `${view.x}px ${view.y}px`,
+          }}
+        >
+          <div className="board" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}>
             {visibleWidgets.map((widget) => (
               <WidgetCard
                 key={widget.id}
                 widget={widget}
                 focused={focusedId === widget.id}
+                scaleContent={prefs.scaleContent}
                 onFocus={() => setFocusedId(widget.id)}
                 onRemove={() => removeWidget(widget.id)}
                 onDuplicate={() => duplicateWidget(widget.id)}
@@ -1095,18 +1431,20 @@ export default function App() {
             </div>
           )}
 
-          <div className="zoom-hud">
-            <button type="button" className="icon-button" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.2)}>
-              <MinusIcon size={15} />
-            </button>
-            <span className="zoom-level">{Math.round(view.scale * 100)}%</span>
-            <button type="button" className="icon-button" aria-label="Zoom in" onClick={() => zoomBy(1.2)}>
-              <PlusIcon size={15} />
-            </button>
-            <button type="button" className="icon-button" aria-label="Reset view" onClick={resetView}>
-              <FitIcon size={15} />
-            </button>
-          </div>
+          {prefs.zoomHud && (
+            <div className="zoom-hud">
+              <button type="button" className="icon-button" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.2)}>
+                <MinusIcon size={15} />
+              </button>
+              <span className="zoom-level">{Math.round(view.scale * 100)}%</span>
+              <button type="button" className="icon-button" aria-label="Zoom in" onClick={() => zoomBy(1.2)}>
+                <PlusIcon size={15} />
+              </button>
+              <button type="button" className="icon-button" aria-label="Reset view" onClick={resetView}>
+                <FitIcon size={15} />
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1139,13 +1477,32 @@ export default function App() {
         </div>
 
         <div className="field">
+          <span className="field-label">Appearance</span>
+          <div className="segmented">
+            {[
+              { key: 'dark', label: 'Dark' },
+              { key: 'light', label: 'Light' },
+            ].map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={`seg ${prefs.theme === item.key ? 'active' : ''}`}
+                onClick={() => setSettings((current) => ({ ...current, theme: item.key }))}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="field">
           <span className="field-label">Accent</span>
           <div className="swatch-row">
             {ACCENT_PRESETS.map((color) => (
               <button
                 key={color}
                 type="button"
-                className={`swatch ${settings.accent.toLowerCase() === color ? 'active' : ''}`}
+                className={`swatch ${prefs.accent.toLowerCase() === color ? 'active' : ''}`}
                 style={{ background: color }}
                 aria-label={`Accent ${color}`}
                 onClick={() => setSettings((current) => ({ ...current, accent: color }))}
@@ -1153,7 +1510,7 @@ export default function App() {
             ))}
             <input
               type="color"
-              value={settings.accent}
+              value={prefs.accent}
               onChange={(event) => setSettings((current) => ({ ...current, accent: event.target.value }))}
               aria-label="Custom accent color"
             />
@@ -1164,14 +1521,82 @@ export default function App() {
           <span>Grid</span>
           <input
             type="checkbox"
-            checked={settings.grid}
+            checked={prefs.grid}
             onChange={(event) => setSettings((current) => ({ ...current, grid: event.target.checked }))}
           />
         </label>
 
+        <div className="field">
+          <span className="field-label">Grid pattern</span>
+          <div className="segmented">
+            {[
+              { key: 'dots', label: 'Dots' },
+              { key: 'lines', label: 'Lines' },
+            ].map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={`seg ${prefs.gridStyle === item.key ? 'active' : ''}`}
+                onClick={() => setSettings((current) => ({ ...current, gridStyle: item.key }))}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="field">
+          <span className="field-label">Grid size</span>
+          <div className="segmented">
+            {GRID_SIZES.map((size) => (
+              <button
+                key={size}
+                type="button"
+                className={`seg ${prefs.gridSize === size ? 'active' : ''}`}
+                onClick={() => setSettings((current) => ({ ...current, gridSize: size }))}
+              >
+                {size}px
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <label className="toggle-row">
+          <span>Snap to grid</span>
+          <input
+            type="checkbox"
+            checked={prefs.snap}
+            onChange={(event) => setSettings((current) => ({ ...current, snap: event.target.checked }))}
+          />
+        </label>
+
+        <label className="toggle-row">
+          <span>Scale widget contents</span>
+          <input
+            type="checkbox"
+            checked={prefs.scaleContent}
+            onChange={(event) => setSettings((current) => ({ ...current, scaleContent: event.target.checked }))}
+          />
+        </label>
+
+        <label className="toggle-row">
+          <span>Show zoom controls</span>
+          <input
+            type="checkbox"
+            checked={prefs.zoomHud}
+            onChange={(event) => setSettings((current) => ({ ...current, zoomHud: event.target.checked }))}
+          />
+        </label>
+
+        <div className="panel-divider" />
+
         <button type="button" className="panel-button" onClick={resetView}>
           <ResetIcon size={15} />
           Reset zoom &amp; position
+        </button>
+        <button type="button" className="panel-button" onClick={() => setSettings(defaultSettings)}>
+          <SlidersIcon size={15} />
+          Reset preferences
         </button>
         <button type="button" className="panel-button danger" onClick={clearCanvas} disabled={visibleWidgets.length === 0}>
           <TrashIcon size={15} />

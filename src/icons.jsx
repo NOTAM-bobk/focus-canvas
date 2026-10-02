@@ -190,6 +190,32 @@ export const ResetIcon = (props) => (
   </Svg>
 );
 
+export const TodoistIcon = (props) => (
+  <Svg {...props}>
+    <path d="M3 6.5l1.8 1.8L8 5" />
+    <path d="M11 6.5h10" />
+    <path d="M3 12.5l1.8 1.8L8 11" />
+    <path d="M11 12.5h10" />
+    <path d="M3 18.5l1.8 1.8L8 17" />
+    <path d="M11 18.5h10" />
+  </Svg>
+);
+
+export const RefreshIcon = (props) => (
+  <Svg {...props}>
+    <path d="M21 12a9 9 0 1 1-2.6-6.4" />
+    <path d="M21 3v5h-5" />
+  </Svg>
+);
+
+export const ExternalIcon = (props) => (
+  <Svg {...props}>
+    <path d="M14 4h6v6" />
+    <path d="M20 4l-9 9" />
+    <path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
+  </Svg>
+);
+
 export const GripIcon = (props) => (
   <Svg {...props}>
     <circle cx="9" cy="6" r="1" />
@@ -215,4 +241,5 @@ export const ICONS = {
   links: LinkIcon,
   sound: HeadphonesIcon,
   stats: ChartIcon,
+  todoist: TodoistIcon,
 };
