@@ -261,8 +261,7 @@ export default function renderWidgetBody(widget, app) {
     case 'countdown': {
       const parts = countdownParts(countdown.target);
       return (
-        <div className="widget-body">
-          <div className="mini-heading">{countdown.label || 'Countdown'}</div>
+        <div className="widget-body countdown-body">
           <div className="countdown-row">
             {[
               { value: parts.days, unit: 'days' },
@@ -607,7 +606,10 @@ export default function renderWidgetBody(widget, app) {
 
     case 'stats': {
       const focusHours = (stats.focusMinutes / 60).toFixed(1);
-      const taskPct = tasks.length ? Math.round((doneTasks / tasks.length) * 100) : 0;
+      const connected = Boolean(todoistToken);
+      const localPct = tasks.length ? `${Math.round((doneTasks / tasks.length) * 100)}%` : '0%';
+      // "Tasks done" comes from Todoist's completed-today count when connected.
+      const doneToday = connected && todoist.completedToday != null ? todoist.completedToday : null;
       return (
         <div className="widget-body">
           <div className="stat-grid">
@@ -620,7 +622,7 @@ export default function renderWidgetBody(widget, app) {
               <span>Focused</span>
             </div>
             <div className="stat-cell">
-              <strong>{taskPct}%</strong>
+              <strong>{connected ? doneToday ?? '—' : localPct}</strong>
               <span>Tasks done</span>
             </div>
             <div className="stat-cell">
@@ -628,7 +630,13 @@ export default function renderWidgetBody(widget, app) {
               <span>Glasses</span>
             </div>
           </div>
-          <div className="micro-copy">Resets each morning.</div>
+          <div className="micro-copy">
+            {connected
+              ? doneToday != null
+                ? 'Completed in Todoist today'
+                : 'Connect Todoist to count tasks'
+              : 'Resets each morning'}
+          </div>
         </div>
       );
     }

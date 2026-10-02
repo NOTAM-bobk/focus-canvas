@@ -76,14 +76,14 @@ export const textBaseline = (size) => size * 0.8;
 /*  Geometry                                                          */
 /* ------------------------------------------------------------------ */
 
-const distanceToSegment = (px, py, ax, ay, ry, by) => {
-  const dx = by - ax;
+const distanceToSegment = (px, py, ax, ay, bx, by) => {
+  const dx = bx - ax;
   const dy = by - ay;
   const lengthSq = dx * dx + dy * dy;
-  if (!lengthSq) return Math.hypot(px - ax, py - ry);
-  let t = ((px - ax) * dx + (py - ry) * dy) / lengthSq;
+  if (!lengthSq) return Math.hypot(px - ax, py - ay);
+  let t = ((px - ax) * dx + (py - ay) * dy) / lengthSq;
   t = Math.max(0, Math.min(1, t));
-  return Math.hypot(px - (ax + t * dx), py - (ry + t * dy));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 };
 
 export const shapeEndpoints = (stroke) => {

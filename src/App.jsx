@@ -161,7 +161,7 @@ export default function App() {
   const [soundPlaying, setSoundPlaying] = useState(false);
   const [stats, setStats] = useLocalStorageState(KEYS.stats, { day: todayKey(), sessions: 0, focusMinutes: 0 });
   const [todoistToken, setTodoistToken] = useLocalStorageState(KEYS.todoist, '');
-  const [todoist, setTodoist] = useState({ tasks: [], projects: [], status: 'idle', error: '' });
+  const [todoist, setTodoist] = useState({ tasks: [], projects: [], completedToday: null, status: 'idle', error: '' });
   const [todoistFilter, setTodoistFilter] = useState('today');
   const [todoistDraft, setTodoistDraft] = useState('');
   const [todoistTokenDraft, setTodoistTokenDraft] = useState('');
@@ -513,18 +513,40 @@ export default function App() {
     [todoistToken],
   );
 
+  // Today's completed tasks, for the Today widget. The endpoint is newer, so a
+  // failure here (or an older token) never blocks the rest of the sync.
+  const completedTodayParams = () => {
+    const since = new Date();
+    since.setHours(0, 0, 0, 0);
+    const until = new Date();
+    until.setHours(23, 59, 59, 999);
+    return `since=${since.toISOString()}&until=${until.toISOString()}&limit=200`;
+  };
+
+  const countCompleted = (data) => {
+    const list = Array.isArray(data) ? data : data?.results || data?.items || [];
+    return list.length;
+  };
+
   const loadTodoist = useCallback(async () => {
     if (!todoistToken) {
-      setTodoist({ tasks: [], projects: [], status: 'idle', error: '' });
+      setTodoist({ tasks: [], projects: [], completedToday: null, status: 'idle', error: '' });
       return;
     }
     setTodoist((current) => ({ ...current, status: 'loading', error: '' }));
     try {
-      const [tasksData, projectsData] = await Promise.all([
+      const [tasksData, projectsData, completedData] = await Promise.all([
         todoistFetch('/tasks'),
         todoistFetch('/projects'),
+        todoistFetch(`/tasks/completed/by_completion_date?${completedTodayParams()}`).catch(() => null),
       ]);
-      setTodoist({ tasks: todoistList(tasksData), projects: todoistList(projectsData), status: 'ready', error: '' });
+      setTodoist({
+        tasks: todoistList(tasksData),
+        projects: todoistList(projectsData),
+        completedToday: completedData ? countCompleted(completedData) : null,
+        status: 'ready',
+        error: '',
+      });
     } catch (error) {
       const message =
         error instanceof TypeError
@@ -582,7 +604,12 @@ export default function App() {
       setTodoistBusy(task.id);
       try {
         await todoistFetch(`/tasks/${task.id}/close`, { method: 'POST' });
-        setTodoist((current) => ({ ...current, tasks: current.tasks.filter((item) => item.id !== task.id), error: '' }));
+        setTodoist((current) => ({
+          ...current,
+          tasks: current.tasks.filter((item) => item.id !== task.id),
+          completedToday: current.completedToday != null ? current.completedToday + 1 : current.completedToday,
+          error: '',
+        }));
       } catch (error) {
         setTodoist((current) => ({ ...current, error: error.message }));
       } finally {
@@ -1250,45 +1277,6 @@ export default function App() {
     () => (prefs.drawMode && prefs.whiteboard ? [] : visibleWidgets),
     [prefs.drawMode, prefs.whiteboard, visibleWidgets],
   );
-
-  // Small live read-outs shown in the top bar for anything currently running.
-  const liveWidgets = useMemo(() => {
-    const items = [];
-    const find = (type) => visibleWidgets.find((widget) => widget.type === type);
-    const timerWidget = find('timer');
-    if (timerWidget && timer.running) {
-      items.push({ id: timerWidget.id, label: timerWidget.title, icon: TimerIcon, value: formatClock(timer.remaining) });
-    }
-    const stopwatchWidget = find('stopwatch');
-    if (stopwatchWidget && stopwatch.running) {
-      items.push({ id: stopwatchWidget.id, label: stopwatchWidget.title, icon: StopwatchIcon, value: formatStopwatch(stopwatch.elapsed) });
-    }
-    const intervalWidget = find('pandora');
-    if (intervalWidget && pandora.running) {
-      items.push({ id: intervalWidget.id, label: intervalWidget.title, icon: RepeatIcon, value: formatClock(pandora.remaining) });
-    }
-    const breathWidget = find('breath');
-    if (breathWidget && breath.running) {
-      items.push({ id: breathWidget.id, label: breathWidget.title, icon: BreathIcon, value: breathPhase(now - breath.startedAt) });
-    }
-    const soundWidget = find('sound');
-    if (soundWidget && soundPlaying) {
-      items.push({ id: soundWidget.id, label: soundWidget.title, icon: HeadphonesIcon, value: 'Ambience' });
-    }
-    return items;
-  }, [
-    visibleWidgets,
-    timer.running,
-    timer.remaining,
-    stopwatch.running,
-    stopwatch.elapsed,
-    pandora.running,
-    pandora.remaining,
-    breath.running,
-    breath.startedAt,
-    soundPlaying,
-    now,
-  ]);
 
   const addWidget = useCallback((type) => {
     const size = widgetSize(type);
@@ -1986,6 +1974,11 @@ export default function App() {
   const ThemeIcon = prefs.theme === 'dark' ? SunIcon : MoonIcon;
   const fullscreenWidget = fullscreenId ? widgets.find((widget) => widget.id === fullscreenId) : null;
 
+  // Date and time shown in the top bar, reusing the master tick.
+  const clockNow = new Date(now);
+  const clockDate = clockNow.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  const clockTime = clockNow.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
   // Everything a widget body needs to render, gathered once so
   // `renderWidgetBody` stays a plain function (see src/widgets/renderWidgetBody.jsx).
   const widgetApp = {
@@ -2021,32 +2014,6 @@ export default function App() {
       style={{ '--accent': prefs.accent }}
     >
       <header className="topbar">
-        <div className={`topbar-live ${liveWidgets.length ? 'is-live' : ''}`}>
-          <span className="topbar-live-label">
-            <span className="live-dot" aria-hidden="true" />
-            Live
-          </span>
-          {liveWidgets.length === 0 && <span className="topbar-live-empty">Nothing running</span>}
-          {liveWidgets.map((item) => {
-            const LiveIcon = item.icon;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className="live-chip"
-                title={item.label}
-                onClick={() => {
-                  const target = widgets.find((widget) => widget.id === item.id);
-                  if (target) focusWidget(target);
-                }}
-              >
-                <LiveIcon size={13} />
-                <span>{item.value}</span>
-              </button>
-            );
-          })}
-        </div>
-
         <div className="ws-switcher">
           <button
             type="button"
@@ -2146,9 +2113,12 @@ export default function App() {
         </div>
 
         <div className="topbar-actions">
-          <span className={`save-chip ${savePulse ? 'is-live' : ''}`} aria-live="polite">
+          <span
+            className={`save-chip ${savePulse ? 'is-live' : ''}`}
+            aria-live="polite"
+            title={savePulse ? 'Saved' : 'Autosave'}
+          >
             <span className="save-dot" aria-hidden="true" />
-            {savePulse ? 'Saved' : 'Autosave'}
           </span>
           {!isMobile && (
             <button
@@ -2195,6 +2165,11 @@ export default function App() {
           <button type="button" className="icon-button" aria-label="Customize" onClick={() => setSettingsOpen((open) => !open)}>
             <SlidersIcon size={16} />
           </button>
+        </div>
+
+        <div className="topbar-clock" aria-label="Date and time">
+          <span className="topbar-clock-date">{clockDate}</span>
+          <span className="topbar-clock-time">{clockTime}</span>
         </div>
       </header>
 

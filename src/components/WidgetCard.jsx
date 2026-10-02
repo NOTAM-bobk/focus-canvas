@@ -91,8 +91,10 @@ export default function WidgetCard({
   // Post-its and notes skip the header entirely and look like real paper.
   const isSticky = widget.type === 'sticky';
   const isNotes = widget.type === 'notes';
+  const isClock = widget.type === 'clock';
+  const isCountdown = widget.type === 'countdown';
   const isLiveEmbed = widget.type === 'iframe' && VALID_PROTOCOL.test(widget.src || '');
-  const bare = isSticky || isNotes || isLiveEmbed;
+  const bare = isSticky || isNotes || isClock || isCountdown || isLiveEmbed;
 
   const actionButtons = (
     <>
