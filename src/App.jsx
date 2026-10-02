@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ICONS,
+  BoardIcon,
   BreathIcon,
   CalendarIcon,
   ChevronLeftIcon,
@@ -13,18 +14,25 @@ import {
   CopyIcon,
   DiceIcon,
   DropletIcon,
+  EraserIcon,
   ExternalIcon,
   FitIcon,
   FlashcardIcon,
+  FrameIcon,
+  HandIcon,
   HeadphonesIcon,
+  HighlighterIcon,
+  ImageIcon,
   LinkIcon,
   LockIcon,
   MinusIcon,
   MoonIcon,
   NoteIcon,
+  PenIcon,
   PlusIcon,
   QuoteIcon,
   RainIcon,
+  RedoIcon,
   RefreshIcon,
   RepeatIcon,
   ResetIcon,
@@ -38,6 +46,7 @@ import {
   TimerIcon,
   TodoistIcon,
   TrashIcon,
+  UndoIcon,
   UnlockIcon,
   XIcon,
 } from './icons';
@@ -59,6 +68,7 @@ const KEYS = {
   stats: 'focus-canvas-stats-v3',
   todoist: 'focus-canvas-todoist-v3',
   weather: 'focus-canvas-weather-v3',
+  draw: 'focus-canvas-draw-v3',
 };
 
 const MIN_ZOOM = 0.15;
@@ -157,7 +167,7 @@ const WIDGET_CATALOG = [
   { key: 'water', label: 'Water', icon: DropletIcon, w: 250, h: 215 },
   { key: 'quote', label: 'Quote', icon: QuoteIcon, w: 340, h: 195 },
   { key: 'links', label: 'Links', icon: LinkIcon, w: 270, h: 220 },
-  { key: 'sound', label: 'Sound', icon: HeadphonesIcon, w: 290, h: 230 },
+  { key: 'sound', label: 'Sound', icon: HeadphonesIcon, w: 300, h: 270 },
   { key: 'stats', label: 'Today', icon: ChartIcon, w: 300, h: 220 },
   { key: 'sticky', label: 'Post-it', icon: StickyIcon, w: 250, h: 250 },
   { key: 'flashcards', label: 'Flashcards', icon: FlashcardIcon, w: 300, h: 250 },
@@ -165,6 +175,7 @@ const WIDGET_CATALOG = [
   { key: 'breath', label: 'Breathe', icon: BreathIcon, w: 240, h: 270 },
   { key: 'weather', label: 'Weather', icon: CloudIcon, w: 300, h: 290 },
   { key: 'todoist', label: 'Todoist', icon: TodoistIcon, w: 340, h: 320 },
+  { key: 'iframe', label: 'Embed', icon: FrameIcon, w: 420, h: 320 },
 ];
 
 const CATALOG_MAP = Object.fromEntries(WIDGET_CATALOG.map((item) => [item.key, item]));
@@ -186,6 +197,7 @@ const createWidget = (type, overrides = {}) => {
     ...(type === 'flashcards' ? { deck: '', cardIndex: 0, flipped: false, editing: false, order: [] } : {}),
     ...(type === 'picker' ? { names: '', editing: false } : {}),
     ...(type === 'clock' ? { clock24: false } : {}),
+    ...(type === 'iframe' ? { url: '', src: '', reload: 0 } : {}),
     ...overrides,
   };
 };
@@ -249,9 +261,35 @@ const defaultSettings = {
   chime: true,
   autoNext: false,
   reduceMotion: false,
+  drawMode: false,
+  whiteboard: false,
+  drawTool: 'pen',
+  drawColor: '#0070f3',
+  drawSize: 4,
 };
 const GRID_SIZES = [16, 24, 32];
 const ACCENT_PRESETS = ['#0070f3', '#ffffff', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
+const DRAW_COLORS = ['#0070f3', '#ffffff', '#ef4444', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#111827'];
+const DRAW_SIZES = [2, 4, 8, 16];
+
+// Turn a list of board-space points into a smooth SVG path.
+const pointsToPath = (points) => {
+  if (!points || !points.length) return '';
+  if (points.length === 1) {
+    return `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)} l 0.01 0`;
+  }
+  let d = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const control = points[i];
+    const next = points[i + 1];
+    const midX = (control.x + next.x) / 2;
+    const midY = (control.y + next.y) / 2;
+    d += ` Q ${control.x.toFixed(2)} ${control.y.toFixed(2)} ${midX.toFixed(2)} ${midY.toFixed(2)}`;
+  }
+  const last = points[points.length - 1];
+  d += ` L ${last.x.toFixed(2)} ${last.y.toFixed(2)}`;
+  return d;
+};
 
 const QUOTES = [
   { text: 'Focus is the art of knowing what to ignore.', author: 'James Clear' },
@@ -292,11 +330,105 @@ const normalizeUrl = (value) => {
 };
 
 const SOUND_TYPES = [
-  { key: 'white', label: 'White', cutoff: 9000 },
-  { key: 'pink', label: 'Pink', cutoff: 1400 },
-  { key: 'brown', label: 'Brown', cutoff: 700 },
-  { key: 'rain', label: 'Rain', cutoff: 3200 },
+  { key: 'white', label: 'White', cutoff: 12000 },
+  { key: 'pink', label: 'Pink', cutoff: 7000 },
+  { key: 'brown', label: 'Brown', cutoff: 2600 },
+  { key: 'rain', label: 'Rain', cutoff: 5000 },
+  { key: 'storm', label: 'Storm', cutoff: 3400 },
+  { key: 'ocean', label: 'Ocean', cutoff: 1900 },
+  { key: 'wind', label: 'Wind', cutoff: 2400 },
+  { key: 'fire', label: 'Embers', cutoff: 2800 },
+  { key: 'night', label: 'Night', cutoff: 1500 },
 ];
+
+const SOUND_SECONDS = 6;
+
+// Synthesise one seamless loop of shaped noise for an ambience preset.
+const fillNoise = (data, type, sampleRate) => {
+  const length = data.length;
+  let b0 = 0;
+  let b1 = 0;
+  let b2 = 0;
+  let b3 = 0;
+  let b4 = 0;
+  let b5 = 0;
+  let b6 = 0;
+  let brown = 0;
+  let rumble = 0;
+  let pop = 0;
+  const tau = Math.PI * 2;
+
+  for (let i = 0; i < length; i += 1) {
+    const white = Math.random() * 2 - 1;
+    // Pink noise via the Paul Kellet filter bank.
+    b0 = 0.99886 * b0 + white * 0.0555179;
+    b1 = 0.99332 * b1 + white * 0.0750759;
+    b2 = 0.969 * b2 + white * 0.153852;
+    b3 = 0.8665 * b3 + white * 0.3104856;
+    b4 = 0.55 * b4 + white * 0.5329522;
+    b5 = -0.7616 * b5 - white * 0.016898;
+    const pink = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.11;
+    b6 = white * 0.115926;
+    // Brown noise.
+    brown = (brown + 0.02 * white) / 1.02;
+    const t = i / sampleRate;
+    let value;
+
+    switch (type) {
+      case 'pink':
+        value = pink * 1.6;
+        break;
+      case 'brown':
+        value = brown * 3.6;
+        break;
+      case 'rain':
+        value = pink * 0.7 + white * 0.12;
+        break;
+      case 'storm': {
+        // Low rumble plus one soft thunder swell per loop.
+        rumble = (rumble + 0.004 * white) / 1.004;
+        const boom = Math.max(0, (Math.sin(tau * (t / SOUND_SECONDS) - Math.PI / 2) + 1) / 2 - 0.82) / 0.18;
+        value = (pink * 0.55 + white * 0.09) * 0.9 + rumble * 7 * boom;
+        break;
+      }
+      case 'ocean': {
+        const swell = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(tau * (t / 3)));
+        value = brown * 4 * swell + pink * 0.3 * swell;
+        break;
+      }
+      case 'wind': {
+        const gust = 0.5 + 0.5 * Math.sin(tau * (t / 3) + 1);
+        value = (pink * 1.1 + brown * 1.8) * (0.35 + 0.65 * gust);
+        break;
+      }
+      case 'fire': {
+        if (Math.random() < 0.00008) pop += (Math.random() * 2 - 1) * 0.9;
+        pop *= 0.9985;
+        value = brown * 2.6 + pink * 0.3 + pop;
+        break;
+      }
+      case 'night': {
+        const drift = 0.7 + 0.3 * Math.sin(tau * (t / SOUND_SECONDS));
+        value = (brown * 2.3 + pink * 0.4) * drift;
+        break;
+      }
+      case 'white':
+      default:
+        value = white * 0.7;
+        break;
+    }
+
+    data[i] = clamp(value, -1, 1);
+  }
+
+  // Crossfade the tail into the head so the loop point is inaudible.
+  const fade = Math.min(Math.floor(sampleRate * 0.4), Math.floor(length / 4));
+  for (let i = 0; i < fade; i += 1) {
+    const mix = i / fade;
+    const tail = length - fade + i;
+    data[tail] = data[tail] * (1 - mix) + data[i] * mix;
+  }
+};
 
 /* ------------------------------------------------------------------ */
 /*  Todoist helpers                                                   */
@@ -560,6 +692,11 @@ export default function App() {
   const [weatherEditing, setWeatherEditing] = useState(false);
   const [weatherBusy, setWeatherBusy] = useState(false);
 
+  const [strokes, setStrokes] = useLocalStorageState(KEYS.draw, []);
+  const [strokeDraft, setStrokeDraft] = useState(null);
+  const [past, setPast] = useState([]);
+  const [future, setFuture] = useState([]);
+
   const [newTask, setNewTask] = useState('');
   const [newHabit, setNewHabit] = useState('');
   const [linkDraft, setLinkDraft] = useState({ label: '', url: '' });
@@ -701,15 +838,34 @@ export default function App() {
 
   const stopSound = useCallback(() => {
     const audio = audioRef.current;
-    if (audio.source) {
+    if (!audio.source || !audio.ctx) return;
+    const source = audio.source;
+    audio.source = null;
+    const now = audio.ctx.currentTime;
+    try {
+      audio.gain.gain.cancelScheduledValues(now);
+      audio.gain.gain.setValueAtTime(audio.gain.gain.value, now);
+      audio.gain.gain.linearRampToValueAtTime(0.0001, now + 0.4);
+    } catch {
+      /* ignore */
+    }
+    try {
+      source.stop(now + 0.45);
+    } catch {
       try {
-        audio.source.stop();
+        source.stop();
       } catch {
         /* already stopped */
       }
-      audio.source.disconnect();
-      audio.source = null;
     }
+    // Let the fade finish before tearing the node down.
+    setTimeout(() => {
+      try {
+        source.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }, 600);
   }, []);
 
   const startSound = useCallback((type) => {
@@ -729,32 +885,20 @@ export default function App() {
     stopSound();
 
     const ctx = audio.ctx;
-    const length = ctx.sampleRate * 3;
+    const length = Math.floor(ctx.sampleRate * SOUND_SECONDS);
     const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    let last = 0;
-    for (let i = 0; i < length; i += 1) {
-      const white = Math.random() * 2 - 1;
-      if (type === 'brown') {
-        last = (last + 0.02 * white) / 1.02;
-        data[i] = last * 3.4;
-      } else if (type === 'pink') {
-        last = 0.96 * last + 0.04 * white;
-        data[i] = last * 2.2;
-      } else if (type === 'rain') {
-        last = 0.6 * last + 0.4 * white;
-        data[i] = Math.max(-1, Math.min(1, last * 1.4));
-      } else {
-        data[i] = white * 0.6;
-      }
-    }
+    fillNoise(buffer.getChannelData(0), type, ctx.sampleRate);
 
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.loop = true;
     const preset = SOUND_TYPES.find((item) => item.key === type) || SOUND_TYPES[0];
-    audio.filter.frequency.value = preset.cutoff;
-    audio.gain.gain.value = volumeRef.current;
+    audio.filter.frequency.setValueAtTime(preset.cutoff, ctx.currentTime);
+    audio.filter.Q.value = 0.6;
+    // Ease the ambience in so it never clicks on.
+    audio.gain.gain.cancelScheduledValues(ctx.currentTime);
+    audio.gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    audio.gain.gain.linearRampToValueAtTime(volumeRef.current, ctx.currentTime + 0.9);
     source.connect(audio.filter);
     source.start();
     audio.source = source;
@@ -1093,10 +1237,208 @@ export default function App() {
   };
 
   /* ------------------------------------------------------------------ */
+  /*  Drawing & whiteboard                                              */
+  /* ------------------------------------------------------------------ */
+
+  const boardPoint = useCallback(
+    (clientX, clientY) => {
+      const rect = viewportRef.current?.getBoundingClientRect();
+      if (!rect) return null;
+      return { x: (clientX - rect.left - view.x) / view.scale, y: (clientY - rect.top - view.y) / view.scale };
+    },
+    [view],
+  );
+
+  const pushPast = useCallback((snapshot) => {
+    setPast((previous) => [...previous.slice(-59), snapshot]);
+    setFuture([]);
+  }, []);
+
+  const startDraw = useCallback(
+    (event) => {
+      const target = event.target;
+      const onBoard =
+        target === viewportRef.current ||
+        (target instanceof Element && (target.classList.contains('board') || target.classList.contains('draw-layer')));
+      if (!onBoard) return false;
+      if (event.pointerType === 'mouse' && event.button !== 0) return false;
+      if (pointersRef.current.size >= 2) return false;
+      const origin = boardPoint(event.clientX, event.clientY);
+      if (!origin) return false;
+      event.preventDefault();
+
+      const tool = prefs.drawTool;
+      const color = prefs.drawColor;
+      const size = prefs.drawSize;
+
+      if (tool === 'eraser') {
+        const snapshot = strokes;
+        let working = strokes;
+        const eraseAt = (point) => {
+          const radius = size * 2 + 8;
+          working = working.filter(
+            (stroke) => !stroke.points.some((handle) => Math.hypot(handle.x - point.x, handle.y - point.y) <= radius),
+          );
+        };
+        eraseAt(origin);
+        setStrokes(working);
+        let aborted = false;
+        const move = (moveEvent) => {
+          if (pointersRef.current.size >= 2) {
+            aborted = true;
+            return;
+          }
+          const point = boardPoint(moveEvent.clientX, moveEvent.clientY);
+          if (!point) return;
+          eraseAt(point);
+          setStrokes(working);
+        };
+        const up = () => {
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+          window.removeEventListener('pointercancel', up);
+          if (aborted) setStrokes(snapshot);
+          else if (working.length !== snapshot.length) pushPast(snapshot);
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', up);
+        return true;
+      }
+
+      let working = { id: uid('stroke'), tool, color, size, points: [origin] };
+      setStrokeDraft(working);
+      let aborted = false;
+      const move = (moveEvent) => {
+        if (pointersRef.current.size >= 2) {
+          aborted = true;
+          return;
+        }
+        const point = boardPoint(moveEvent.clientX, moveEvent.clientY);
+        if (!point) return;
+        const last = working.points[working.points.length - 1];
+        if (Math.hypot(point.x - last.x, point.y - last.y) < 1.5) return;
+        working = { ...working, points: [...working.points, point] };
+        setStrokeDraft(working);
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+        setStrokeDraft(null);
+        if (aborted) return;
+        pushPast(strokes);
+        setStrokes((current) => [...current, working]);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+      return true;
+    },
+    [boardPoint, prefs.drawTool, prefs.drawColor, prefs.drawSize, strokes, setStrokes, pushPast],
+  );
+
+  const onViewportPointerDown = (event) => {
+    if (prefs.drawMode && !isMobile && prefs.drawTool !== 'pan' && startDraw(event)) return;
+    startPan(event);
+  };
+
+  const undoDraw = useCallback(() => {
+    if (!past.length) return;
+    setFuture([strokes, ...future]);
+    setStrokes(past[past.length - 1]);
+    setPast(past.slice(0, -1));
+  }, [past, future, strokes, setStrokes]);
+
+  const redoDraw = useCallback(() => {
+    if (!future.length) return;
+    setPast([...past, strokes]);
+    setStrokes(future[0]);
+    setFuture(future.slice(1));
+  }, [past, future, strokes, setStrokes]);
+
+  const clearDrawing = useCallback(() => {
+    if (!strokes.length) return;
+    pushPast(strokes);
+    setStrokes([]);
+  }, [strokes, pushPast, setStrokes]);
+
+  const exportDrawing = useCallback(() => {
+    if (!strokes.length) return;
+    const pad = 48;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    strokes.forEach((stroke) =>
+      stroke.points.forEach((point) => {
+        minX = Math.min(minX, point.x);
+        minY = Math.min(minY, point.y);
+        maxX = Math.max(maxX, point.x);
+        maxY = Math.max(maxY, point.y);
+      }),
+    );
+    const width = Math.max(1, maxX - minX) + pad * 2;
+    const height = Math.max(1, maxY - minY) + pad * 2;
+    const background = prefs.theme === 'dark' && !prefs.whiteboard ? '#000000' : '#ffffff';
+    const body = strokes
+      .map(
+        (stroke) =>
+          `<path d="${pointsToPath(stroke.points)}" fill="none" stroke="${stroke.color}" stroke-width="${stroke.size}" stroke-linecap="round" stroke-linejoin="round" opacity="${stroke.tool === 'marker' ? 0.4 : 1}" />`,
+      )
+      .join('');
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(width)}" height="${Math.ceil(height)}" ` +
+      `viewBox="${minX - pad} ${minY - pad} ${width} ${height}">` +
+      `<rect x="${minX - pad}" y="${minY - pad}" width="${width}" height="${height}" fill="${background}" />${body}</svg>`;
+    const image = new Image();
+    image.onload = () => {
+      const scale = 2;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.ceil(width * scale);
+      canvas.height = Math.ceil(height * scale);
+      const context = canvas.getContext('2d');
+      context.scale(scale, scale);
+      context.drawImage(image, 0, 0);
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `focus-canvas-${todayKey()}.png`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+      });
+    };
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  }, [strokes, prefs.theme, prefs.whiteboard]);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      const tag = event.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || event.target?.isContentEditable) return;
+      if (!prefs.drawMode) return;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        if (event.shiftKey) redoDraw();
+        else undoDraw();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [prefs.drawMode, undoDraw, redoDraw]);
+
+  /* ------------------------------------------------------------------ */
   /*  Widget mutations                                                  */
   /* ------------------------------------------------------------------ */
 
   const visibleWidgets = useMemo(() => widgets.filter((widget) => widget.visible), [widgets]);
+
+  // Whiteboard mode clears the widgets off the board, leaving a clean surface to draw on.
+  const shownWidgets = useMemo(
+    () => (prefs.drawMode && prefs.whiteboard ? [] : visibleWidgets),
+    [prefs.drawMode, prefs.whiteboard, visibleWidgets],
+  );
 
   // Small live read-outs shown in the top bar for anything currently running.
   const liveWidgets = useMemo(() => {
@@ -1514,13 +1856,47 @@ export default function App() {
       },
       { id: 'action:settings', group: 'Action', label: 'Open customize', icon: SlidersIcon, run: () => setSettingsOpen(true) },
       { id: 'action:clear', group: 'Action', label: 'Clear canvas', icon: TrashIcon, run: () => setWidgets([]) },
+      {
+        id: 'draw:toggle',
+        group: 'Draw',
+        label: prefs.drawMode ? 'Exit drawing mode' : 'Draw on the board',
+        icon: PenIcon,
+        run: () => setSettings((current) => ({ ...current, drawMode: !current.drawMode, whiteboard: false })),
+      },
+      {
+        id: 'draw:whiteboard',
+        group: 'Draw',
+        label: prefs.whiteboard ? 'Bring widgets back' : 'Turn into a whiteboard',
+        icon: BoardIcon,
+        run: () => setSettings((current) => ({ ...current, drawMode: true, whiteboard: !current.whiteboard })),
+      },
+      { id: 'draw:undo', group: 'Draw', label: 'Undo stroke', icon: UndoIcon, run: undoDraw },
+      { id: 'draw:redo', group: 'Draw', label: 'Redo stroke', icon: RedoIcon, run: redoDraw },
+      { id: 'draw:clear', group: 'Draw', label: 'Clear drawing', icon: TrashIcon, run: clearDrawing },
+      { id: 'draw:export', group: 'Draw', label: 'Export drawing as PNG', icon: ImageIcon, run: exportDrawing },
     );
     const query = paletteQuery.trim().toLowerCase();
     if (!query) return commands;
     return commands.filter(
       (command) => command.label.toLowerCase().includes(query) || command.group.toLowerCase().includes(query),
     );
-  }, [paletteQuery, visibleWidgets, addWidget, applyTemplate, focusWidget, resetView, prefs.theme, setSettings, setWidgets]);
+  }, [
+    paletteQuery,
+    visibleWidgets,
+    addWidget,
+    applyTemplate,
+    focusWidget,
+    resetView,
+    prefs.theme,
+    prefs.drawMode,
+    prefs.whiteboard,
+    undoDraw,
+    redoDraw,
+    clearDrawing,
+    exportDrawing,
+    setSettings,
+    setWidgets,
+  ]);
 
   const runCommand = (command) => {
     command.run();
@@ -1997,7 +2373,8 @@ export default function App() {
       case 'sound':
         return (
           <div className="widget-body">
-            <div className="chip-row">
+            <div className="mini-heading">Ambience</div>
+            <div className="chip-row sound-presets scrollable">
               {SOUND_TYPES.map((item) => (
                 <button
                   key={item.key}
@@ -2489,6 +2866,68 @@ export default function App() {
         );
       }
 
+      case 'iframe': {
+        const src = widget.src || '';
+        const embeddable = VALID_PROTOCOL.test(src);
+        return (
+          <div className="widget-body iframe-body">
+            <form
+              className="inline-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const next = normalizeUrl(widget.url || '');
+                if (next) updateWidget(widget.id, { src: next });
+              }}
+            >
+              <input
+                type="text"
+                value={widget.url || ''}
+                onChange={(event) => updateWidget(widget.id, { url: event.target.value })}
+                placeholder="Paste a link to embed…"
+                aria-label="Embed URL"
+              />
+              <button type="submit" className="primary" disabled={!normalizeUrl(widget.url || '')}>
+                <FrameIcon size={15} />
+              </button>
+            </form>
+            {embeddable ? (
+              <>
+                <div className="iframe-frame">
+                  <iframe
+                    key={widget.reload || 0}
+                    src={src}
+                    title={widget.title || 'Embedded page'}
+                    sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-popups-to-escape-sandbox"
+                    referrerPolicy="no-referrer"
+                    loading="lazy"
+                  />
+                </div>
+                <div className="iframe-foot">
+                  <span className="iframe-url" title={src}>
+                    {src}
+                  </span>
+                  <button
+                    type="button"
+                    className="text-btn"
+                    onClick={() => updateWidget(widget.id, { reload: (widget.reload || 0) + 1 })}
+                  >
+                    <RefreshIcon size={13} /> Reload
+                  </button>
+                  <a className="text-btn" href={src} target="_blank" rel="noreferrer noopener">
+                    <ExternalIcon size={13} /> Open
+                  </a>
+                </div>
+              </>
+            ) : (
+              <div className="hint">
+                Paste a YouTube, Docs, or any site URL. Some pages block embedding — open them in a new tab if the frame
+                stays blank.
+              </div>
+            )}
+          </div>
+        );
+      }
+
       default:
         return <div className="hint">Unknown widget</div>;
     }
@@ -2561,6 +3000,17 @@ export default function App() {
           })}
         </div>
         <div className="topbar-actions">
+          {!isMobile && (
+            <button
+              type="button"
+              className={`icon-button ${prefs.drawMode ? 'is-active' : ''}`}
+              aria-label={prefs.drawMode ? 'Exit drawing' : 'Draw on the board'}
+              title={prefs.drawMode ? 'Exit drawing' : 'Draw on the board'}
+              onClick={() => setSettings((current) => ({ ...current, drawMode: !current.drawMode, whiteboard: false }))}
+            >
+              <PenIcon size={16} />
+            </button>
+          )}
           <button
             type="button"
             className="icon-button"
@@ -2609,9 +3059,10 @@ export default function App() {
         </div>
       ) : (
         <div
-          className="canvas-viewport"
+          className={`canvas-viewport ${prefs.drawMode ? 'is-drawing' : ''} ${prefs.whiteboard ? 'is-whiteboard' : ''}`}
           ref={viewportRef}
-          onPointerDown={startPan}
+          data-tool={prefs.drawTool}
+          onPointerDown={onViewportPointerDown}
           style={{
             backgroundImage: prefs.grid
               ? prefs.gridStyle === 'lines'
@@ -2623,7 +3074,7 @@ export default function App() {
           }}
         >
           <div className="board" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}>
-            {visibleWidgets.map((widget) => (
+            {shownWidgets.map((widget) => (
               <WidgetCard
                 key={widget.id}
                 widget={widget}
@@ -2639,9 +3090,23 @@ export default function App() {
                 {renderWidgetBody(widget)}
               </WidgetCard>
             ))}
+            <svg className="draw-layer" aria-hidden="true">
+              {[...strokes, ...(strokeDraft ? [strokeDraft] : [])].map((stroke) => (
+                <path
+                  key={stroke.id}
+                  d={pointsToPath(stroke.points)}
+                  fill="none"
+                  stroke={stroke.color}
+                  strokeWidth={stroke.size}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity={stroke.tool === 'marker' ? 0.4 : 1}
+                />
+              ))}
+            </svg>
           </div>
 
-          {visibleWidgets.length === 0 && renderWelcome(false)}
+          {!prefs.drawMode && visibleWidgets.length === 0 && renderWelcome(false)}
 
           {prefs.zoomHud && (
             <div className="zoom-hud">
@@ -2660,28 +3125,128 @@ export default function App() {
         </div>
       )}
 
-      <nav className="toolbar">
-        <div className="toolbar-palette">
-          {WIDGET_CATALOG.filter((item) => !prefs.hiddenPalette.includes(item.key)).map((item) => {
-            const Icon = item.icon;
-            return (
-              <button key={item.key} type="button" className="palette-item" onClick={() => addWidget(item.key)} title={`Add ${item.label}`}>
-                <Icon size={16} />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-          {WIDGET_CATALOG.every((item) => prefs.hiddenPalette.includes(item.key)) && (
-            <span className="palette-empty">All widgets hidden</span>
+      {!prefs.whiteboard && (
+        <nav className="toolbar">
+          <div className="toolbar-palette">
+            {WIDGET_CATALOG.filter((item) => !prefs.hiddenPalette.includes(item.key)).map((item) => {
+              const Icon = item.icon;
+              return (
+                <button key={item.key} type="button" className="palette-item" onClick={() => addWidget(item.key)} title={`Add ${item.label}`}>
+                  <Icon size={16} />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+            {WIDGET_CATALOG.every((item) => prefs.hiddenPalette.includes(item.key)) && (
+              <span className="palette-empty">All widgets hidden</span>
+            )}
+          </div>
+          <div className="toolbar-end">
+            <button type="button" className="palette-text" onClick={clearCanvas} disabled={visibleWidgets.length === 0}>
+              <TrashIcon size={15} />
+              <span>Clear</span>
+            </button>
+          </div>
+        </nav>
+      )}
+
+      {prefs.drawMode && !isMobile && (
+        <div className="draw-toolbar" role="toolbar" aria-label="Drawing tools">
+          <div className="draw-group">
+            {[
+              { key: 'pen', label: 'Pen', icon: PenIcon },
+              { key: 'marker', label: 'Highlighter', icon: HighlighterIcon },
+              { key: 'eraser', label: 'Eraser', icon: EraserIcon },
+              { key: 'pan', label: 'Pan board', icon: HandIcon },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`draw-btn ${prefs.drawTool === item.key ? 'active' : ''}`}
+                  title={item.label}
+                  aria-label={item.label}
+                  onClick={() => setSettings((current) => ({ ...current, drawTool: item.key }))}
+                >
+                  <Icon size={16} />
+                </button>
+              );
+            })}
+          </div>
+          {prefs.drawTool !== 'eraser' && prefs.drawTool !== 'pan' && (
+            <>
+              <span className="draw-divider" />
+              <div className="draw-group draw-group--colors">
+                {DRAW_COLORS.map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    className={`draw-swatch ${prefs.drawColor.toLowerCase() === color ? 'active' : ''}`}
+                    style={{ background: color }}
+                    aria-label={`Pen colour ${color}`}
+                    onClick={() => setSettings((current) => ({ ...current, drawColor: color }))}
+                  />
+                ))}
+                <input
+                  type="color"
+                  value={prefs.drawColor}
+                  onChange={(event) => setSettings((current) => ({ ...current, drawColor: event.target.value }))}
+                  aria-label="Custom pen colour"
+                />
+              </div>
+            </>
           )}
-        </div>
-        <div className="toolbar-end">
-          <button type="button" className="palette-text" onClick={clearCanvas} disabled={visibleWidgets.length === 0}>
-            <TrashIcon size={15} />
-            <span>Clear</span>
+          <span className="draw-divider" />
+          <div className="draw-group">
+            {DRAW_SIZES.map((size) => (
+              <button
+                key={size}
+                type="button"
+                className={`draw-btn draw-btn--size ${prefs.drawSize === size ? 'active' : ''}`}
+                aria-label={`Stroke size ${size}`}
+                onClick={() => setSettings((current) => ({ ...current, drawSize: size }))}
+              >
+                <span className="draw-dot" style={{ width: size * 1.5, height: size * 1.5 }} />
+              </button>
+            ))}
+          </div>
+          <span className="draw-divider" />
+          <div className="draw-group">
+            <button type="button" className="draw-btn" title="Undo" aria-label="Undo stroke" onClick={undoDraw} disabled={!past.length}>
+              <UndoIcon size={16} />
+            </button>
+            <button type="button" className="draw-btn" title="Redo" aria-label="Redo stroke" onClick={redoDraw} disabled={!future.length}>
+              <RedoIcon size={16} />
+            </button>
+            <button type="button" className="draw-btn" title="Clear drawing" aria-label="Clear drawing" onClick={clearDrawing} disabled={!strokes.length}>
+              <TrashIcon size={16} />
+            </button>
+            <button type="button" className="draw-btn" title="Export as PNG" aria-label="Export drawing" onClick={exportDrawing} disabled={!strokes.length}>
+              <ImageIcon size={16} />
+            </button>
+          </div>
+          <span className="draw-divider" />
+          <button
+            type="button"
+            className={`draw-btn draw-btn--wide ${prefs.whiteboard ? 'active' : ''}`}
+            title="Turn the board into a clean whiteboard"
+            onClick={() => setSettings((current) => ({ ...current, whiteboard: !current.whiteboard }))}
+          >
+            <BoardIcon size={16} />
+            <span>{prefs.whiteboard ? 'Widgets off' : 'Whiteboard'}</span>
+          </button>
+          <button
+            type="button"
+            className="draw-btn"
+            title="Exit drawing"
+            aria-label="Exit drawing"
+            onClick={() => setSettings((current) => ({ ...current, drawMode: false, whiteboard: false }))}
+          >
+            <XIcon size={16} />
           </button>
         </div>
-      </nav>
+      )}
 
       <aside className={`settings-panel ${settingsOpen ? 'open' : ''}`}>
         <div className="panel-header">
@@ -2829,6 +3394,37 @@ export default function App() {
             onChange={(event) => setSettings((current) => ({ ...current, reduceMotion: event.target.checked }))}
           />
         </label>
+
+        <div className="field">
+          <span className="field-label">Drawing</span>
+          <label className="toggle-row">
+            <span>Draw on the board</span>
+            <input
+              type="checkbox"
+              checked={prefs.drawMode}
+              onChange={(event) =>
+                setSettings((current) => ({
+                  ...current,
+                  drawMode: event.target.checked,
+                  whiteboard: event.target.checked ? current.whiteboard : false,
+                }))
+              }
+            />
+          </label>
+          <label className="toggle-row">
+            <span>Whiteboard mode</span>
+            <input
+              type="checkbox"
+              checked={prefs.whiteboard}
+              disabled={!prefs.drawMode}
+              onChange={(event) => setSettings((current) => ({ ...current, whiteboard: event.target.checked }))}
+            />
+          </label>
+          <div className="micro-copy">
+            Draw over your widgets, or switch to a clean whiteboard. Pen, highlighter and eraser with undo, redo, and PNG
+            export. Stored in this browser.
+          </div>
+        </div>
 
         <div className="field">
           <span className="field-label">Templates</span>

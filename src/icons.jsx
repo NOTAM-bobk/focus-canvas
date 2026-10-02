@@ -326,6 +326,78 @@ export const GripIcon = (props) => (
   </Svg>
 );
 
+export const PenIcon = (props) => (
+  <Svg {...props}>
+    <path d="M4 20l3.4-1 10.9-10.9a2.3 2.3 0 0 0-3.3-3.3L4.1 15.7 3 21z" />
+    <path d="M13.6 6.2l4.2 4.2" />
+    <path d="M3 21h6" />
+  </Svg>
+);
+
+export const HighlighterIcon = (props) => (
+  <Svg {...props}>
+    <path d="M12.8 4.2l6.9 6.9-5.4 5.4-4.8-.6-1.5-4.8z" />
+    <path d="M9.5 15.9L5 20.4l-2 .6.6-2 4.5-4.5" />
+    <path d="M4 23h16" />
+  </Svg>
+);
+
+export const EraserIcon = (props) => (
+  <Svg {...props}>
+    <path d="M4.5 15.5l7-7a2 2 0 0 1 2.8 0l4.2 4.2a2 2 0 0 1 0 2.8l-4.4 4.4H8l-3.5-3.5a2 2 0 0 1 0-2.9z" />
+    <path d="M9 10.5l5.5 5.5" />
+    <path d="M8 20.9h12" />
+  </Svg>
+);
+
+export const HandIcon = (props) => (
+  <Svg {...props}>
+    <path d="M8 11.5V6a1.5 1.5 0 0 1 3 0v5" />
+    <path d="M11 10.5V4.5a1.5 1.5 0 0 1 3 0V10" />
+    <path d="M14 10.5V6.5a1.5 1.5 0 0 1 3 0V13" />
+    <path d="M8 11.5V9.5a1.5 1.5 0 0 0-3 0V15a6 6 0 0 0 6 6h2a5 5 0 0 0 5-5v-3" />
+  </Svg>
+);
+
+export const UndoIcon = (props) => (
+  <Svg {...props}>
+    <path d="M9 7L4 12l5 5" />
+    <path d="M4 12h10.5a5.5 5.5 0 0 1 0 11H10" />
+  </Svg>
+);
+
+export const RedoIcon = (props) => (
+  <Svg {...props}>
+    <path d="M15 7l5 5-5 5" />
+    <path d="M20 12H9.5a5.5 5.5 0 0 0 0 11H14" />
+  </Svg>
+);
+
+export const ImageIcon = (props) => (
+  <Svg {...props}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <circle cx="8.5" cy="9.5" r="1.5" />
+    <path d="M4 18l5-5 3 3 3-3 5 5" />
+  </Svg>
+);
+
+export const BoardIcon = (props) => (
+  <Svg {...props}>
+    <rect x="3" y="3" width="18" height="13" rx="2" />
+    <path d="M12 16v5" />
+    <path d="M8 21h8" />
+  </Svg>
+);
+
+export const FrameIcon = (props) => (
+  <Svg {...props}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M3 9h18" />
+    <circle cx="6.4" cy="6.5" r="0.7" />
+    <circle cx="9" cy="6.5" r="0.7" />
+  </Svg>
+);
+
 export const ICONS = {
   timer: TimerIcon,
   stopwatch: StopwatchIcon,
@@ -346,4 +418,5 @@ export const ICONS = {
   picker: DiceIcon,
   breath: BreathIcon,
   weather: CloudIcon,
+  iframe: FrameIcon,
 };
