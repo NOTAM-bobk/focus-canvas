@@ -1,26 +1,55 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ICONS,
+  CalendarIcon,
+  ClockIcon,
+  ChartIcon,
+  CheckSquareIcon,
+  CopyIcon,
+  DropletIcon,
+  FitIcon,
+  HeadphonesIcon,
+  LinkIcon,
+  MinusIcon,
+  MoonIcon,
+  NoteIcon,
+  PlusIcon,
+  QuoteIcon,
+  RepeatIcon,
+  ResetIcon,
+  SlidersIcon,
+  SproutIcon,
+  StopwatchIcon,
+  SunIcon,
+  TimerIcon,
+  TrashIcon,
+  XIcon,
+} from './icons';
 
 /* ------------------------------------------------------------------ */
-/*  Storage keys & helpers                                            */
+/*  Constants & helpers                                               */
 /* ------------------------------------------------------------------ */
 
 const KEYS = {
-  settings: 'focus-canvas-settings-v2',
-  widgets: 'focus-canvas-widgets-v2',
-  notes: 'focus-canvas-notes-v2',
-  tasks: 'focus-canvas-tasks-v2',
-  habits: 'focus-canvas-habits-v2',
-  water: 'focus-canvas-water-v2',
-  links: 'focus-canvas-links-v2',
-  countdown: 'focus-canvas-countdown-v2',
-  sound: 'focus-canvas-sound-v2',
-  stats: 'focus-canvas-stats-v2',
+  settings: 'focus-canvas-settings-v3',
+  widgets: 'focus-canvas-widgets-v3',
+  notes: 'focus-canvas-notes-v3',
+  tasks: 'focus-canvas-tasks-v3',
+  habits: 'focus-canvas-habits-v3',
+  water: 'focus-canvas-water-v3',
+  links: 'focus-canvas-links-v3',
+  countdown: 'focus-canvas-countdown-v3',
+  sound: 'focus-canvas-sound-v3',
+  stats: 'focus-canvas-stats-v3',
 };
 
+const BOARD = { w: 3200, h: 2200 };
+const MIN_ZOOM = 0.3;
+const MAX_ZOOM = 2.5;
+const DEFAULT_VIEW = { scale: 1, x: 60, y: 60 };
+
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-
 const uid = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-
 const todayKey = () => new Date().toISOString().slice(0, 10);
 
 const readState = (key, fallback) => {
@@ -43,7 +72,7 @@ const useLocalStorageState = (key, initial) => {
     try {
       localStorage.setItem(key, JSON.stringify(value));
     } catch {
-      /* storage unavailable — ignore */
+      /* ignore */
     }
   }, [key, value]);
 
@@ -85,23 +114,23 @@ const greeting = (hour) => {
 };
 
 /* ------------------------------------------------------------------ */
-/*  Widget catalog                                                    */
+/*  Catalog                                                           */
 /* ------------------------------------------------------------------ */
 
 const WIDGET_CATALOG = [
-  { key: 'timer', label: 'Focus Timer', icon: '⏱️', desc: 'Pomodoro countdown with presets', w: 270, h: 210 },
-  { key: 'stopwatch', label: 'Stopwatch', icon: '⏲️', desc: 'Track elapsed time', w: 240, h: 190 },
-  { key: 'pandora', label: 'Interval Timer', icon: '🔁', desc: 'Short controlled work bursts', w: 260, h: 205 },
-  { key: 'clock', label: 'Clock', icon: '🕐', desc: 'Live time and date', w: 250, h: 175 },
-  { key: 'countdown', label: 'Countdown', icon: '📅', desc: 'Days until an event', w: 275, h: 195 },
-  { key: 'tasks', label: 'Task List', icon: '✅', desc: 'Checklist for the day', w: 310, h: 255 },
-  { key: 'habits', label: 'Habit Tracker', icon: '🌱', desc: 'Weekly habit grid', w: 340, h: 245 },
-  { key: 'notes', label: 'Notes', icon: '📝', desc: 'Jot down ideas fast', w: 340, h: 235 },
-  { key: 'water', label: 'Hydration', icon: '💧', desc: 'Track your water goal', w: 250, h: 215 },
-  { key: 'quote', label: 'Inspiration', icon: '✨', desc: 'A rotating focus quote', w: 340, h: 195 },
-  { key: 'links', label: 'Quick Links', icon: '🔗', desc: 'Your favorite shortcuts', w: 270, h: 220 },
-  { key: 'sound', label: 'Soundscape', icon: '🎧', desc: 'Ambient background noise', w: 290, h: 230 },
-  { key: 'stats', label: 'Today', icon: '📊', desc: 'Your daily progress', w: 300, h: 220 },
+  { key: 'timer', label: 'Focus', icon: TimerIcon, w: 260, h: 200 },
+  { key: 'stopwatch', label: 'Stopwatch', icon: StopwatchIcon, w: 230, h: 180 },
+  { key: 'pandora', label: 'Interval', icon: RepeatIcon, w: 250, h: 200 },
+  { key: 'clock', label: 'Clock', icon: ClockIcon, w: 250, h: 170 },
+  { key: 'countdown', label: 'Countdown', icon: CalendarIcon, w: 280, h: 200 },
+  { key: 'tasks', label: 'Tasks', icon: CheckSquareIcon, w: 310, h: 250 },
+  { key: 'habits', label: 'Habits', icon: SproutIcon, w: 340, h: 245 },
+  { key: 'notes', label: 'Notes', icon: NoteIcon, w: 330, h: 230 },
+  { key: 'water', label: 'Water', icon: DropletIcon, w: 250, h: 215 },
+  { key: 'quote', label: 'Quote', icon: QuoteIcon, w: 340, h: 195 },
+  { key: 'links', label: 'Links', icon: LinkIcon, w: 270, h: 220 },
+  { key: 'sound', label: 'Sound', icon: HeadphonesIcon, w: 290, h: 230 },
+  { key: 'stats', label: 'Today', icon: ChartIcon, w: 300, h: 220 },
 ];
 
 const CATALOG_MAP = Object.fromEntries(WIDGET_CATALOG.map((item) => [item.key, item]));
@@ -113,31 +142,16 @@ const createWidget = (type, overrides = {}) => {
     type,
     title: meta ? meta.label : type,
     visible: true,
-    x: 32,
-    y: 32,
+    x: 120,
+    y: 120,
     w: meta ? meta.w : 260,
     h: meta ? meta.h : 200,
     ...overrides,
   };
 };
 
-const initialWidgets = [
-  createWidget('timer', { x: 24, y: 24 }),
-  createWidget('clock', { x: 314, y: 24 }),
-  createWidget('tasks', { x: 584, y: 24 }),
-  createWidget('notes', { x: 24, y: 254 }),
-  createWidget('water', { x: 384, y: 254 }),
-  createWidget('quote', { x: 654, y: 300, w: 360, h: 200 }),
-];
-
-const defaultSettings = {
-  accent: '#7c5cff',
-  background: '#0b0f19',
-  grid: true,
-  theme: 'dark',
-};
-
-const ACCENT_PRESETS = ['#7c5cff', '#22d3ee', '#34d399', '#f59e0b', '#fb7185', '#a855f7'];
+const defaultSettings = { theme: 'dark', grid: true, accent: '#0070f3' };
+const ACCENT_PRESETS = ['#0070f3', '#ffffff', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'];
 
 const QUOTES = [
   { text: 'Focus is the art of knowing what to ignore.', author: 'James Clear' },
@@ -159,9 +173,9 @@ const DEFAULT_TASKS = [
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 const DEFAULT_HABITS = [
-  { id: uid('habit'), name: 'Deep work', days: [false, false, false, false, false, false, false] },
-  { id: uid('habit'), name: 'Move your body', days: [false, false, false, false, false, false, false] },
-  { id: uid('habit'), name: 'Read 20 minutes', days: [false, false, false, false, false, false, false] },
+  { id: uid('habit'), name: 'Deep work', days: new Array(7).fill(false) },
+  { id: uid('habit'), name: 'Move your body', days: new Array(7).fill(false) },
+  { id: uid('habit'), name: 'Read 20 minutes', days: new Array(7).fill(false) },
 ];
 
 const DEFAULT_LINKS = [
@@ -171,7 +185,6 @@ const DEFAULT_LINKS = [
 ];
 
 const VALID_PROTOCOL = /^https?:\/\//i;
-
 const normalizeUrl = (value) => {
   const trimmed = value.trim();
   if (!trimmed) return '';
@@ -189,7 +202,10 @@ const SOUND_TYPES = [
 /*  Widget card                                                       */
 /* ------------------------------------------------------------------ */
 
-function WidgetCard({ widget, focused, mobile, onFocus, onRemove, onDragStart, onResizeStart, children }) {
+const CORNERS = ['nw', 'ne', 'sw', 'se'];
+
+function WidgetCard({ widget, focused, mobile, onFocus, onRemove, onDuplicate, onDragStart, onResizeStart, children }) {
+  const Icon = ICONS[widget.type] || TimerIcon;
   return (
     <section
       className={`widget ${mobile ? 'widget--flow' : ''} ${focused ? 'is-focused' : ''}`}
@@ -197,20 +213,30 @@ function WidgetCard({ widget, focused, mobile, onFocus, onRemove, onDragStart, o
       onMouseDown={onFocus}
       onTouchStart={onFocus}
     >
-      <header
-        className={`widget-header ${mobile ? 'static' : ''}`}
-        onPointerDown={mobile ? undefined : onDragStart}
-      >
+      <header className={`widget-header ${mobile ? 'static' : ''}`} onPointerDown={mobile ? undefined : onDragStart}>
         <span className="widget-title">
-          <span className="widget-icon" aria-hidden="true">{CATALOG_MAP[widget.type]?.icon}</span>
+          <Icon size={15} />
           {widget.title}
         </span>
-        <div className="widget-actions">
-          <button type="button" onClick={onRemove} aria-label={`Remove ${widget.title}`}>×</button>
+        <div className="widget-actions" onPointerDown={(event) => event.stopPropagation()}>
+          <button type="button" onClick={onDuplicate} aria-label={`Duplicate ${widget.title}`}>
+            <CopyIcon size={14} />
+          </button>
+          <button type="button" onClick={onRemove} aria-label={`Remove ${widget.title}`}>
+            <XIcon size={14} />
+          </button>
         </div>
       </header>
       <div className="widget-content">{children}</div>
-      {!mobile && <div className="resize-hitbox" onPointerDown={onResizeStart} aria-hidden="true" />}
+      {!mobile &&
+        CORNERS.map((corner) => (
+          <span
+            key={corner}
+            className={`handle handle--${corner}`}
+            onPointerDown={(event) => onResizeStart(event, corner)}
+            aria-hidden="true"
+          />
+        ))}
     </section>
   );
 }
@@ -220,10 +246,10 @@ function WidgetCard({ widget, focused, mobile, onFocus, onRemove, onDragStart, o
 /* ------------------------------------------------------------------ */
 
 export default function App() {
-  const canvasRef = useRef(null);
+  const viewportRef = useRef(null);
 
   const [settings, setSettings] = useLocalStorageState(KEYS.settings, defaultSettings);
-  const [widgets, setWidgets] = useLocalStorageState(KEYS.widgets, initialWidgets);
+  const [widgets, setWidgets] = useLocalStorageState(KEYS.widgets, []);
   const [notesText, setNotesText] = useLocalStorageState(KEYS.notes, '');
   const [tasks, setTasks] = useLocalStorageState(KEYS.tasks, DEFAULT_TASKS);
   const [habits, setHabits] = useLocalStorageState(KEYS.habits, DEFAULT_HABITS);
@@ -246,12 +272,12 @@ export default function App() {
   const [pandora, setPandora] = useState({ running: false, remaining: 20 * 60, preset: 20 * 60 });
 
   const [now, setNow] = useState(() => Date.now());
+  const [view, setView] = useState(DEFAULT_VIEW);
   const [focusedId, setFocusedId] = useState(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [isMobile, setIsMobile] = useState(
-    () => typeof window !== 'undefined' && window.innerWidth < 760,
+    () => typeof window !== 'undefined' && window.innerWidth < 820,
   );
 
   const audioRef = useRef({ ctx: null, gain: null, source: null, filter: null });
@@ -259,7 +285,7 @@ export default function App() {
 
   /* --- responsive --- */
   useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < 760);
+    const onResize = () => setIsMobile(window.innerWidth < 820);
     onResize();
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
@@ -276,7 +302,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  /* --- timer completion -> daily stats --- */
   useEffect(() => {
     if (timer.running && timer.remaining === 0) {
       setTimer((current) => ({ ...current, running: false }));
@@ -294,41 +319,11 @@ export default function App() {
     }
   }, [pandora]);
 
-  /* --- daily stats reset on a new day --- */
   useEffect(() => {
     if (stats.day !== todayKey()) {
       setStats({ day: todayKey(), sessions: 0, focusMinutes: 0 });
     }
   }, [stats.day, setStats]);
-
-  /* --- fit widgets into the canvas --- */
-  useEffect(() => {
-    const element = canvasRef.current;
-    if (!element || isMobile) return undefined;
-
-    const fit = () => {
-      const rect = element.getBoundingClientRect();
-      if (!rect.width || !rect.height) return;
-      setWidgets((current) =>
-        current.map((widget) => {
-          const width = Math.min(widget.w, Math.max(200, rect.width - 24));
-          const height = Math.min(widget.h, Math.max(130, rect.height - 24));
-          return {
-            ...widget,
-            w: width,
-            h: height,
-            x: clamp(widget.x, 12, Math.max(12, rect.width - width - 12)),
-            y: clamp(widget.y, 12, Math.max(12, rect.height - height - 12)),
-          };
-        }),
-      );
-    };
-
-    fit();
-    const observer = new ResizeObserver(fit);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [isMobile, setWidgets]);
 
   /* ------------------------------------------------------------------ */
   /*  Ambient audio                                                     */
@@ -396,11 +391,8 @@ export default function App() {
   }, [stopSound]);
 
   useEffect(() => {
-    if (sound.playing) {
-      startSound(sound.type);
-    } else {
-      stopSound();
-    }
+    if (sound.playing) startSound(sound.type);
+    else stopSound();
     return () => stopSound();
   }, [sound.playing, sound.type, startSound, stopSound]);
 
@@ -411,6 +403,64 @@ export default function App() {
   }, [sound.volume]);
 
   /* ------------------------------------------------------------------ */
+  /*  Zoom & pan                                                        */
+  /* ------------------------------------------------------------------ */
+
+  const zoomAt = useCallback((factor, clientX, clientY) => {
+    const rect = viewportRef.current?.getBoundingClientRect();
+    setView((current) => {
+      const next = clamp(current.scale * factor, MIN_ZOOM, MAX_ZOOM);
+      if (next === current.scale) return current;
+      if (!rect) return { ...current, scale: next };
+      const px = clientX - rect.left;
+      const py = clientY - rect.top;
+      const boardX = (px - current.x) / current.scale;
+      const boardY = (py - current.y) / current.scale;
+      return { scale: next, x: px - boardX * next, y: py - boardY * next };
+    });
+  }, []);
+
+  const zoomBy = useCallback((factor) => {
+    const rect = viewportRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    zoomAt(factor, rect.left + rect.width / 2, rect.top + rect.height / 2);
+  }, [zoomAt]);
+
+  const resetView = useCallback(() => setView(DEFAULT_VIEW), []);
+
+  useEffect(() => {
+    const element = viewportRef.current;
+    if (!element || isMobile) return undefined;
+    const onWheel = (event) => {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      event.preventDefault();
+      zoomAt(event.deltaY < 0 ? 1.12 : 1 / 1.12, event.clientX, event.clientY);
+    };
+    element.addEventListener('wheel', onWheel, { passive: false });
+    return () => element.removeEventListener('wheel', onWheel);
+  }, [isMobile, zoomAt]);
+
+  const startPan = (event) => {
+    const target = event.target;
+    const onBoard = target === viewportRef.current || (target instanceof Element && target.classList.contains('board'));
+    if (!onBoard) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const origin = { ...view };
+
+    const move = (moveEvent) => {
+      setView({ ...origin, x: origin.x + (moveEvent.clientX - startX), y: origin.y + (moveEvent.clientY - startY) });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  /* ------------------------------------------------------------------ */
   /*  Widget mutations                                                  */
   /* ------------------------------------------------------------------ */
 
@@ -418,75 +468,102 @@ export default function App() {
 
   const addWidget = useCallback((type) => {
     const meta = CATALOG_MAP[type];
+    const rect = viewportRef.current?.getBoundingClientRect();
+    const vw = rect?.width ?? 900;
+    const vh = rect?.height ?? 640;
+    const duplicates = widgets.filter((widget) => widget.type === type).length;
+    const boardX = (vw / 2 - view.x) / view.scale - meta.w / 2 + duplicates * 28;
+    const boardY = (vh / 2 - view.y) / view.scale - meta.h / 2 + duplicates * 28;
     setWidgets((current) => [
       ...current,
       createWidget(type, {
-        x: 40 + (current.length % 5) * 26,
-        y: 40 + (current.length % 5) * 22,
-        w: meta.w,
-        h: meta.h,
+        x: clamp(boardX, 0, BOARD.w - meta.w),
+        y: clamp(boardY, 0, BOARD.h - meta.h),
       }),
     ]);
-    setPickerOpen(false);
-  }, [setWidgets]);
+  }, [setWidgets, view, widgets]);
 
   const removeWidget = useCallback((id) => {
     setWidgets((current) => current.filter((widget) => widget.id !== id));
+  }, [setWidgets]);
+
+  const duplicateWidget = useCallback((id) => {
+    setWidgets((current) => {
+      const source = current.find((widget) => widget.id === id);
+      if (!source) return current;
+      return [
+        ...current,
+        { ...source, id: uid(source.type), x: clamp(source.x + 32, 0, BOARD.w - source.w), y: clamp(source.y + 32, 0, BOARD.h - source.h) },
+      ];
+    });
   }, [setWidgets]);
 
   const updateWidget = useCallback((id, changes) => {
     setWidgets((current) => current.map((widget) => (widget.id === id ? { ...widget, ...changes } : widget)));
   }, [setWidgets]);
 
-  const handleDragStart = useCallback((event, widgetId) => {
+  const startDrag = useCallback((event, widgetId) => {
     const widget = widgets.find((item) => item.id === widgetId);
-    if (!widget || !canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
+    if (!widget) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
     const startX = event.clientX;
     const startY = event.clientY;
     const originX = widget.x;
     const originY = widget.y;
+    const scale = view.scale;
 
-    const handleMove = (moveEvent) => {
+    const move = (moveEvent) => {
       updateWidget(widgetId, {
-        x: clamp(originX + (moveEvent.clientX - startX), 12, Math.max(12, rect.width - widget.w - 12)),
-        y: clamp(originY + (moveEvent.clientY - startY), 12, Math.max(12, rect.height - widget.h - 12)),
+        x: clamp(originX + (moveEvent.clientX - startX) / scale, 0, BOARD.w - widget.w),
+        y: clamp(originY + (moveEvent.clientY - startY) / scale, 0, BOARD.h - widget.h),
       });
     };
-    const handleUp = () => {
-      window.removeEventListener('pointermove', handleMove);
-      window.removeEventListener('pointerup', handleUp);
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
     };
-    window.addEventListener('pointermove', handleMove);
-    window.addEventListener('pointerup', handleUp);
-  }, [widgets, updateWidget]);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }, [widgets, view.scale, updateWidget]);
 
-  const handleResizeStart = useCallback((event, widgetId) => {
+  const startResize = useCallback((event, widgetId, corner) => {
     event.stopPropagation();
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
     const widget = widgets.find((item) => item.id === widgetId);
-    if (!widget || !canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
+    if (!widget) return;
     const startX = event.clientX;
     const startY = event.clientY;
-    const originW = widget.w;
-    const originH = widget.h;
+    const origin = { x: widget.x, y: widget.y, w: widget.w, h: widget.h };
+    const scale = view.scale;
+    const MIN_W = 200;
+    const MIN_H = 140;
 
-    const handleMove = (moveEvent) => {
-      updateWidget(widgetId, {
-        w: clamp(originW + (moveEvent.clientX - startX), 200, rect.width - widget.x - 24),
-        h: clamp(originH + (moveEvent.clientY - startY), 130, rect.height - widget.y - 24),
-      });
+    const move = (moveEvent) => {
+      const dx = (moveEvent.clientX - startX) / scale;
+      const dy = (moveEvent.clientY - startY) / scale;
+      let { x, y, w, h } = origin;
+      if (corner.includes('e')) w = clamp(origin.w + dx, MIN_W, BOARD.w - origin.x);
+      if (corner.includes('s')) h = clamp(origin.h + dy, MIN_H, BOARD.h - origin.y);
+      if (corner.includes('w')) {
+        w = clamp(origin.w - dx, MIN_W, origin.x + origin.w);
+        x = origin.x + origin.w - w;
+      }
+      if (corner.includes('n')) {
+        h = clamp(origin.h - dy, MIN_H, origin.y + origin.h);
+        y = origin.y + origin.h - h;
+      }
+      updateWidget(widgetId, { x, y, w, h });
     };
-    const handleUp = () => {
-      window.removeEventListener('pointermove', handleMove);
-      window.removeEventListener('pointerup', handleUp);
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
     };
-    window.addEventListener('pointermove', handleMove);
-    window.addEventListener('pointerup', handleUp);
-  }, [widgets, updateWidget]);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }, [widgets, view.scale, updateWidget]);
 
   /* ------------------------------------------------------------------ */
-  /*  Task / habit / link / water helpers                               */
+  /*  Data helpers                                                      */
   /* ------------------------------------------------------------------ */
 
   const addTask = (event) => {
@@ -526,14 +603,11 @@ export default function App() {
     setLinkDraft({ label: '', url: '' });
   };
 
-  const handleResetLayout = () => {
-    setWidgets(initialWidgets.map((widget) => ({ ...widget, id: uid(widget.type) })));
-    setSettings((current) => ({ ...current, ...defaultSettings }));
-  };
-
   const adjustWater = (delta) => {
     setWater((current) => ({ ...current, glasses: clamp(current.glasses + delta, 0, 30) }));
   };
+
+  const clearCanvas = () => setWidgets([]);
 
   /* ------------------------------------------------------------------ */
   /*  Widget bodies                                                     */
@@ -615,7 +689,7 @@ export default function App() {
               <span className="clock-seconds">:{String(date.getSeconds()).padStart(2, '0')}</span>
             </div>
             <div className="clock-date">{date.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
-            <div className="clock-greeting">{greeting(date.getHours())} — let’s make it count.</div>
+            <div className="clock-greeting">{greeting(date.getHours())}</div>
           </div>
         );
       }
@@ -638,7 +712,6 @@ export default function App() {
                 </div>
               ))}
             </div>
-            {parts.done && <div className="hint">🎉 That date has arrived.</div>}
             <div className="field-grid">
               <label>
                 Label
@@ -654,10 +727,7 @@ export default function App() {
                 <input
                   type="date"
                   value={countdown.target.slice(0, 10)}
-                  onChange={(event) =>
-                    event.target.value &&
-                    setCountdown((current) => ({ ...current, target: event.target.value }))
-                  }
+                  onChange={(event) => event.target.value && setCountdown((current) => ({ ...current, target: event.target.value }))}
                 />
               </label>
             </div>
@@ -696,7 +766,7 @@ export default function App() {
                     aria-label="Delete task"
                     onClick={() => setTasks((current) => current.filter((item) => item.id !== task.id))}
                   >
-                    ×
+                    <XIcon size={13} />
                   </button>
                 </div>
               ))}
@@ -709,7 +779,9 @@ export default function App() {
                 placeholder="Add a task…"
                 aria-label="New task"
               />
-              <button type="submit" className="primary" disabled={!newTask.trim()}>Add</button>
+              <button type="submit" className="primary" disabled={!newTask.trim()}>
+                <PlusIcon size={15} />
+              </button>
             </form>
           </div>
         );
@@ -722,6 +794,7 @@ export default function App() {
               {DAY_LABELS.map((label, index) => (
                 <span className="habit-day-label" key={`${label}-${index}`}>{label}</span>
               ))}
+              <span />
             </div>
             <div className="habit-list scrollable">
               {habits.map((habit) => (
@@ -742,7 +815,7 @@ export default function App() {
                     aria-label="Remove habit"
                     onClick={() => setHabits((current) => current.filter((item) => item.id !== habit.id))}
                   >
-                    ×
+                    <XIcon size={13} />
                   </button>
                 </div>
               ))}
@@ -755,7 +828,9 @@ export default function App() {
                 placeholder="New habit…"
                 aria-label="New habit"
               />
-              <button type="submit" className="primary" disabled={!newHabit.trim()}>Add</button>
+              <button type="submit" className="primary" disabled={!newHabit.trim()}>
+                <PlusIcon size={15} />
+              </button>
             </form>
           </div>
         );
@@ -766,7 +841,7 @@ export default function App() {
             className="notes-area"
             value={notesText}
             onChange={(event) => setNotesText(event.target.value)}
-            placeholder="Capture your next idea, habit, or task…"
+            placeholder="Write something…"
           />
         );
 
@@ -793,8 +868,12 @@ export default function App() {
               ))}
             </div>
             <div className="action-row">
-              <button type="button" onClick={() => adjustWater(-1)} disabled={water.glasses === 0}>− Glass</button>
-              <button type="button" className="primary" onClick={() => adjustWater(1)}>+ Glass</button>
+              <button type="button" onClick={() => adjustWater(-1)} disabled={water.glasses === 0}>
+                <MinusIcon size={15} />
+              </button>
+              <button type="button" className="primary" onClick={() => adjustWater(1)}>
+                <PlusIcon size={15} />
+              </button>
               <button
                 type="button"
                 onClick={() => setWater((current) => ({ ...current, goal: current.goal >= 12 ? 4 : current.goal + 1 }))}
@@ -810,15 +889,15 @@ export default function App() {
         const quote = QUOTES[quoteIndex % QUOTES.length];
         return (
           <div className="widget-body quote-body">
-            <div className="quote-mark">“</div>
+            <QuoteIcon size={20} className="quote-glyph" />
             <p className="quote-text">{quote.text}</p>
             <p className="quote-author">— {quote.author}</p>
             <button
               type="button"
-              className="hyperlink"
+              className="text-btn"
               onClick={() => setQuoteIndex((current) => (current + 1 + Math.floor(Math.random() * (QUOTES.length - 1))) % QUOTES.length)}
             >
-              New quote →
+              New quote
             </button>
           </div>
         );
@@ -831,14 +910,17 @@ export default function App() {
               {links.length === 0 && <div className="hint">Add shortcuts to your most-used tools.</div>}
               {links.map((link) => (
                 <div className="link-row" key={link.id}>
-                  <a className="link-pill" href={link.url} target="_blank" rel="noreferrer noopener">{link.label}</a>
+                  <a className="link-pill" href={link.url} target="_blank" rel="noreferrer noopener">
+                    <LinkIcon size={14} />
+                    {link.label}
+                  </a>
                   <button
                     type="button"
                     className="icon-btn"
                     aria-label={`Remove ${link.label}`}
                     onClick={() => setLinks((current) => current.filter((item) => item.id !== link.id))}
                   >
-                    ×
+                    <XIcon size={13} />
                   </button>
                 </div>
               ))}
@@ -925,7 +1007,7 @@ export default function App() {
                 <span>Glasses</span>
               </div>
             </div>
-            <div className="micro-copy">Reset each morning. Keep the streak alive.</div>
+            <div className="micro-copy">Resets each morning.</div>
           </div>
         );
       }
@@ -935,39 +1017,41 @@ export default function App() {
     }
   };
 
-  const activeCount = visibleWidgets.length;
+  const ThemeIcon = settings.theme === 'dark' ? SunIcon : MoonIcon;
 
   return (
-    <div
-      className="app-shell"
-      data-theme={settings.theme}
-      style={{ '--accent': settings.accent, '--app-bg': settings.background }}
-    >
-      <header className="app-bar">
+    <div className="app-shell" data-theme={settings.theme} style={{ '--accent': settings.accent }}>
+      <header className="topbar">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">◎</span>
+          <span className="brand-mark" aria-hidden="true" />
           <div>
-            <h1>Focus Canvas</h1>
-            <p>{activeCount} widgets · {new Date(now).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}</p>
+            <span className="brand-name">Focus Canvas</span>
+            <span className="brand-sub">{visibleWidgets.length} widgets</span>
           </div>
         </div>
-        <div className="app-bar-actions">
-          <button type="button" className="ghost" onClick={() => setPickerOpen(true)}>+ Add widget</button>
+        <div className="topbar-actions">
           <button
             type="button"
-            className="ghost icon-only"
+            className="icon-button"
             aria-label="Toggle theme"
             onClick={() => setSettings((current) => ({ ...current, theme: current.theme === 'dark' ? 'light' : 'dark' }))}
           >
-            {settings.theme === 'dark' ? '☀️' : '🌙'}
+            <ThemeIcon size={16} />
           </button>
-          <button type="button" className="ghost" onClick={() => setSettingsOpen((open) => !open)}>Customize</button>
+          <button type="button" className="icon-button" aria-label="Customize" onClick={() => setSettingsOpen((open) => !open)}>
+            <SlidersIcon size={16} />
+          </button>
         </div>
       </header>
 
       {isMobile ? (
         <div className="widget-stack">
-          {visibleWidgets.length === 0 && <div className="empty-state">No widgets yet. Tap “Add widget” to begin.</div>}
+          {visibleWidgets.length === 0 && (
+            <div className="empty-card">
+              <p>Your canvas is empty.</p>
+              <span>Pick a widget from the bar below to get started.</span>
+            </div>
+          )}
           {visibleWidgets.map((widget) => (
             <WidgetCard
               key={widget.id}
@@ -976,85 +1060,86 @@ export default function App() {
               focused={focusedId === widget.id}
               onFocus={() => setFocusedId(widget.id)}
               onRemove={() => removeWidget(widget.id)}
+              onDuplicate={() => duplicateWidget(widget.id)}
             >
               {renderWidgetBody(widget)}
             </WidgetCard>
           ))}
         </div>
       ) : (
-        <div className={`canvas-shell ${settings.grid ? 'grid-enabled' : ''}`} ref={canvasRef}>
-          {visibleWidgets.length === 0 && <div className="empty-state">No widgets yet. Add one from the dock below.</div>}
-          {visibleWidgets.map((widget) => (
-            <WidgetCard
-              key={widget.id}
-              widget={widget}
-              focused={focusedId === widget.id}
-              onFocus={() => setFocusedId(widget.id)}
-              onRemove={() => removeWidget(widget.id)}
-              onDragStart={(event) => handleDragStart(event, widget.id)}
-              onResizeStart={(event) => handleResizeStart(event, widget.id)}
-            >
-              {renderWidgetBody(widget)}
-            </WidgetCard>
-          ))}
+        <div className="canvas-viewport" ref={viewportRef} onPointerDown={startPan}>
+          <div
+            className={`board ${settings.grid ? 'grid' : ''}`}
+            style={{ width: `${BOARD.w}px`, height: `${BOARD.h}px`, transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
+          >
+            {visibleWidgets.map((widget) => (
+              <WidgetCard
+                key={widget.id}
+                widget={widget}
+                focused={focusedId === widget.id}
+                onFocus={() => setFocusedId(widget.id)}
+                onRemove={() => removeWidget(widget.id)}
+                onDuplicate={() => duplicateWidget(widget.id)}
+                onDragStart={(event) => startDrag(event, widget.id)}
+                onResizeStart={(event, corner) => startResize(event, widget.id, corner)}
+              >
+                {renderWidgetBody(widget)}
+              </WidgetCard>
+            ))}
+          </div>
+
+          {visibleWidgets.length === 0 && (
+            <div className="canvas-empty">
+              <p>An empty canvas.</p>
+              <span>Add a widget from the toolbar below — drag to move, resize from any corner, and pan the board by dragging.</span>
+            </div>
+          )}
+
+          <div className="zoom-hud">
+            <button type="button" className="icon-button" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.2)}>
+              <MinusIcon size={15} />
+            </button>
+            <span className="zoom-level">{Math.round(view.scale * 100)}%</span>
+            <button type="button" className="icon-button" aria-label="Zoom in" onClick={() => zoomBy(1.2)}>
+              <PlusIcon size={15} />
+            </button>
+            <button type="button" className="icon-button" aria-label="Reset view" onClick={resetView}>
+              <FitIcon size={15} />
+            </button>
+          </div>
         </div>
       )}
 
-      <nav className="bottom-dock">
-        <button
-          type="button"
-          className={`dock-timer ${timer.running ? 'live' : ''}`}
-          onClick={() => setTimer((current) => ({ ...current, running: !current.running }))}
-        >
-          <span className="label">Focus</span>
-          <strong>{formatClock(timer.remaining)}</strong>
-        </button>
-        <button
-          type="button"
-          className={`dock-timer ${stopwatch.running ? 'live' : ''}`}
-          onClick={() => setStopwatch((current) => ({ ...current, running: !current.running }))}
-        >
-          <span className="label">Stopwatch</span>
-          <strong>{formatStopwatch(stopwatch.elapsed)}</strong>
-        </button>
-        <div className="dock-quick">
-          {WIDGET_CATALOG.slice(0, 6).map((item) => (
-            <button key={item.key} type="button" className="dock-icon" title={`Add ${item.label}`} onClick={() => addWidget(item.key)}>
-              {item.icon}
-            </button>
-          ))}
+      <nav className="toolbar">
+        <div className="toolbar-palette">
+          {WIDGET_CATALOG.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button key={item.key} type="button" className="palette-item" onClick={() => addWidget(item.key)} title={`Add ${item.label}`}>
+                <Icon size={16} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
         </div>
-        <button type="button" className="primary dock-add" onClick={() => setPickerOpen(true)}>+ Widget</button>
+        <div className="toolbar-end">
+          <button type="button" className="palette-text" onClick={clearCanvas} disabled={visibleWidgets.length === 0}>
+            <TrashIcon size={15} />
+            <span>Clear</span>
+          </button>
+        </div>
       </nav>
 
-      {/* Widget picker */}
-      <div className={`overlay ${pickerOpen ? 'open' : ''}`} onClick={() => setPickerOpen(false)} role="presentation">
-        <div className="sheet" onClick={(event) => event.stopPropagation()}>
-          <div className="sheet-header">
-            <h2>Add a widget</h2>
-            <button type="button" onClick={() => setPickerOpen(false)} aria-label="Close">×</button>
-          </div>
-          <div className="sheet-grid">
-            {WIDGET_CATALOG.map((item) => (
-              <button key={item.key} type="button" className="sheet-card" onClick={() => addWidget(item.key)}>
-                <span className="sheet-icon">{item.icon}</span>
-                <span className="sheet-label">{item.label}</span>
-                <span className="sheet-desc">{item.desc}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Settings */}
       <aside className={`settings-panel ${settingsOpen ? 'open' : ''}`}>
         <div className="panel-header">
-          <h3>Customize canvas</h3>
-          <button type="button" onClick={() => setSettingsOpen(false)} aria-label="Close settings">×</button>
+          <h3>Customize</h3>
+          <button type="button" className="icon-button" onClick={() => setSettingsOpen(false)} aria-label="Close settings">
+            <XIcon size={15} />
+          </button>
         </div>
 
         <div className="field">
-          <span className="field-label">Accent color</span>
+          <span className="field-label">Accent</span>
           <div className="swatch-row">
             {ACCENT_PRESETS.map((color) => (
               <button
@@ -1075,17 +1160,8 @@ export default function App() {
           </div>
         </div>
 
-        <label className="field">
-          <span className="field-label">Canvas background</span>
-          <input
-            type="color"
-            value={settings.background}
-            onChange={(event) => setSettings((current) => ({ ...current, background: event.target.value }))}
-          />
-        </label>
-
         <label className="toggle-row">
-          <span>Grid overlay</span>
+          <span>Grid</span>
           <input
             type="checkbox"
             checked={settings.grid}
@@ -1093,8 +1169,17 @@ export default function App() {
           />
         </label>
 
-        <button type="button" className="ghost full" onClick={handleResetLayout}>Reset layout &amp; theme</button>
+        <button type="button" className="panel-button" onClick={resetView}>
+          <ResetIcon size={15} />
+          Reset zoom &amp; position
+        </button>
+        <button type="button" className="panel-button danger" onClick={clearCanvas} disabled={visibleWidgets.length === 0}>
+          <TrashIcon size={15} />
+          Clear canvas
+        </button>
       </aside>
+
+      <div className={`backdrop ${settingsOpen ? 'open' : ''}`} onClick={() => setSettingsOpen(false)} role="presentation" />
     </div>
   );
 }
